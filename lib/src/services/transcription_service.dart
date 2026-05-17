@@ -16,11 +16,13 @@ class TranscriptionService {
 
   final SpeechToText _speechToText;
   final _chunks = StreamController<TranscriptionChunk>.broadcast();
+  final _errors = StreamController<String>.broadcast();
   final _soundLevels = StreamController<double>.broadcast();
   bool _shouldListen = false;
   bool _initialized = false;
 
   Stream<TranscriptionChunk> get chunks => _chunks.stream;
+  Stream<String> get errors => _errors.stream;
   Stream<double> get soundLevels => _soundLevels.stream;
 
   Future<void> start() async {
@@ -28,12 +30,7 @@ class TranscriptionService {
     if (!_initialized) {
       final available = await _speechToText.initialize(
         onError: (error) {
-          _chunks.add(
-            TranscriptionChunk(
-              text: 'Speech recognition error: ${error.errorMsg}',
-              isFinal: true,
-            ),
-          );
+          _errors.add(error.errorMsg);
         },
         onStatus: _handleStatus,
       );
@@ -72,6 +69,7 @@ class TranscriptionService {
   Future<void> dispose() async {
     _shouldListen = false;
     await _speechToText.cancel();
+    await _errors.close();
     await _soundLevels.close();
     await _chunks.close();
   }
@@ -79,7 +77,13 @@ class TranscriptionService {
   void _handleStatus(String status) {
     if (!_shouldListen) return;
     if (status == 'done' || status == 'notListening') {
-      Future<void>.delayed(const Duration(milliseconds: 350), _startListening);
+      Future<void>.delayed(const Duration(milliseconds: 350), () async {
+        try {
+          await _startListening();
+        } on Exception catch (error) {
+          _errors.add(error.toString());
+        }
+      });
     }
   }
 

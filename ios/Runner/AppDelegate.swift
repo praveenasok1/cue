@@ -22,12 +22,11 @@ import UIKit
       UNUserNotificationCenter.current().delegate = self
     }
 
-    configureAudioSession()
-    guard let cueRegistrar = registrar(forPlugin: "CueAudioRoutePlugin") else {
-      NSLog("CUE failed to create Flutter plugin registrar")
+    prepareAudioSessionForRouteMonitoring()
+    guard let messenger = audioRouteBinaryMessenger() else {
+      NSLog("CUE failed to attach audio route channels")
       return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
-    let messenger = cueRegistrar.messenger()
 
     FlutterMethodChannel(
       name: routeChannelName,
@@ -82,15 +81,21 @@ import UIKit
     }
   }
 
-  private func configureAudioSession() {
+  private func audioRouteBinaryMessenger() -> FlutterBinaryMessenger? {
+    if let controller = window?.rootViewController as? FlutterViewController {
+      return controller.binaryMessenger
+    }
+    return registrar(forPlugin: "AudioSessionPlugin")?.messenger()
+  }
+
+  private func prepareAudioSessionForRouteMonitoring() {
     let session = AVAudioSession.sharedInstance()
     do {
       try session.setCategory(
         .playAndRecord,
         mode: .spokenAudio,
-        options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
+        options: [.allowBluetooth, .allowBluetoothA2DP]
       )
-      try session.setActive(true, options: [])
     } catch {
       NSLog("CUE failed to configure AVAudioSession: \(error)")
     }

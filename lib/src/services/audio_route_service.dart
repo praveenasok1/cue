@@ -36,17 +36,19 @@ class AudioRouteService {
 
   Stream<AudioRouteState> routeChanges() async* {
     yield await initialState();
-    yield* _eventChannel
-        .receiveBroadcastStream()
-        .map((event) {
-          if (event is Map) {
-            return _stateFromMap(event.cast<String, Object?>());
-          }
-          return const AudioRouteState(earphonesConnected: false);
-        })
-        .handleError((Object _) {
-          return const AudioRouteState(earphonesConnected: false);
-        });
+    try {
+      await for (final event in _eventChannel.receiveBroadcastStream()) {
+        if (event is Map) {
+          yield _stateFromMap(event.cast<String, Object?>());
+        } else {
+          yield const AudioRouteState(earphonesConnected: false);
+        }
+      }
+    } on PlatformException {
+      yield await initialState();
+    } on MissingPluginException {
+      yield const AudioRouteState(earphonesConnected: false);
+    }
   }
 
   AudioRouteState _stateFromMap(Map<String, Object?>? map) {

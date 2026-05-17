@@ -100,6 +100,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await ref
           .read(catchphraseControllerProvider.notifier)
           .chooseMood(prompt.hit.id, mood);
+    } else if (mounted && _shownPromptId == prompt.hit.id) {
+      _shownPromptId = null;
     }
   }
 }
@@ -1245,6 +1247,12 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
   Future<void> _toggleRecording() async {
     setState(() => _error = null);
     try {
+      final recordingStatus = widget.ref.read(recordingControllerProvider);
+      if (!_isRecording && recordingStatus.isRecording) {
+        throw StateError(
+          'Stop the active session before recording a catchphrase sample.',
+        );
+      }
       final service = widget.ref.read(catchphraseAudioServiceProvider);
       if (_isRecording) {
         final path = await service.stopSampleRecording();

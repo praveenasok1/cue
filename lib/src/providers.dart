@@ -226,8 +226,10 @@ class RecordingController extends Notifier<RecordingStatus> {
   StreamSubscription<double>? _amplitudeSubscription;
   StreamSubscription<double>? _speechLevelSubscription;
   StreamSubscription<TranscriptionChunk>? _transcriptionSubscription;
+  StreamSubscription<String>? _transcriptionErrorSubscription;
   Timer? _levelDecayTimer;
   final Map<int, DateTime> _lastCatchphraseReports = {};
+  bool _isStarting = false;
 
   @override
   RecordingStatus build() {
@@ -241,6 +243,7 @@ class RecordingController extends Notifier<RecordingStatus> {
       _amplitudeSubscription?.cancel();
       _speechLevelSubscription?.cancel();
       _transcriptionSubscription?.cancel();
+      _transcriptionErrorSubscription?.cancel();
       _levelDecayTimer?.cancel();
     });
 
@@ -255,7 +258,7 @@ class RecordingController extends Notifier<RecordingStatus> {
           : 'Waiting for earphones',
     );
 
-    if (route.earphonesConnected && !state.isRecording) {
+    if (route.earphonesConnected && !state.isRecording && !_isStarting) {
       await _startRecording(route.routeName);
     } else if (!route.earphonesConnected &&
         state.isRecording &&
@@ -269,10 +272,13 @@ class RecordingController extends Notifier<RecordingStatus> {
   }
 
   Future<void> _startRecording(String source, {bool manual = false}) async {
+    if (_isStarting || state.isRecording) return;
+    _isStarting = true;
+    RecordingSession? session;
     try {
       await ref.read(foregroundRecordingServiceProvider).start();
       final recording = await ref.read(recordingServiceProvider).start();
-      final session = await ref
+      session = await ref
           .read(databaseProvider)
           .startSession(source: source, audioPath: recording.path);
 
@@ -307,6 +313,13 @@ class RecordingController extends Notifier<RecordingStatus> {
               unawaited(_detectCatchphrases(chunk.text));
             }
           });
+      _transcriptionErrorSubscription?.cancel();
+      _transcriptionErrorSubscription = ref
+          .read(transcriptionServiceProvider)
+          .errors
+          .listen((error) {
+            state = state.copyWith(statusMessage: 'Transcription: $error');
+          });
       await ref.read(transcriptionServiceProvider).start();
 
       state = state.copyWith(
@@ -323,6 +336,21 @@ class RecordingController extends Notifier<RecordingStatus> {
       );
       _startLevelDecay();
     } catch (error) {
+      await _amplitudeSubscription?.cancel();
+      await _speechLevelSubscription?.cancel();
+      await _transcriptionSubscription?.cancel();
+      await _transcriptionErrorSubscription?.cancel();
+      _amplitudeSubscription = null;
+      _speechLevelSubscription = null;
+      _transcriptionSubscription = null;
+      _transcriptionErrorSubscription = null;
+      _levelDecayTimer?.cancel();
+      _levelDecayTimer = null;
+      await ref.read(transcriptionServiceProvider).stop().catchError((_) {});
+      await ref.read(recordingServiceProvider).stop().catchError((_) => null);
+      if (session != null) {
+        await ref.read(databaseProvider).endSession(session.id);
+      }
       await ref.read(foregroundRecordingServiceProvider).stop();
       state = state.copyWith(
         isRecording: false,
@@ -331,6 +359,8 @@ class RecordingController extends Notifier<RecordingStatus> {
         catchphraseDetectionActive: false,
         statusMessage: error.toString(),
       );
+    } finally {
+      _isStarting = false;
     }
   }
 
@@ -365,9 +395,11 @@ class RecordingController extends Notifier<RecordingStatus> {
     await _amplitudeSubscription?.cancel();
     await _speechLevelSubscription?.cancel();
     await _transcriptionSubscription?.cancel();
+    await _transcriptionErrorSubscription?.cancel();
     _amplitudeSubscription = null;
     _speechLevelSubscription = null;
     _transcriptionSubscription = null;
+    _transcriptionErrorSubscription = null;
     _levelDecayTimer?.cancel();
     _levelDecayTimer = null;
 
