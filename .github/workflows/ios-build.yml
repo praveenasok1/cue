@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -49,7 +49,7 @@ jobs:
         run: flutter build ios --release --no-codesign
 
       - name: Upload unsigned Runner.app
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cue-ios-unsigned-runner-app
           path: build/ios/iphoneos/Runner.app
