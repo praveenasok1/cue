@@ -31,7 +31,9 @@ class TranscriptionService {
     if (!_initialized) {
       final available = await _speechToText.initialize(
         onError: (error) {
-          _errors.add(error.errorMsg);
+          if (!_isSilenceError(error.errorMsg)) {
+            _errors.add(error.errorMsg);
+          }
         },
         onStatus: _handleStatus,
       );
@@ -87,7 +89,10 @@ class TranscriptionService {
         try {
           await _startListening();
         } on Exception catch (error) {
-          _errors.add(error.toString());
+          final message = error.toString();
+          if (!_isSilenceError(message)) {
+            _errors.add(message);
+          }
         }
       });
     }
@@ -123,9 +128,21 @@ class TranscriptionService {
       if (!_shouldListen || _speechToText.isListening) return;
       unawaited(
         _startListening().catchError((Object error) {
-          _errors.add(error.toString());
+          final message = error.toString();
+          if (!_isSilenceError(message)) {
+            _errors.add(message);
+          }
         }),
       );
     });
+  }
+
+  bool _isSilenceError(String message) {
+    final normalized = message.toLowerCase();
+    return normalized.contains('no speech detected') ||
+        normalized.contains('error_no_match') ||
+        normalized.contains('no_match') ||
+        normalized.contains('kafassistanterrordomain code=1110') ||
+        normalized.contains('code=1110');
   }
 }
