@@ -306,11 +306,15 @@ class RecordingController extends Notifier<RecordingStatus> {
           .chunks
           .listen((chunk) {
             if (chunk.isFinal) {
-              unawaited(_persistTranscriptChunk(chunk.text));
+              unawaited(
+                _persistTranscriptChunk(chunk.text).catchError((Object error) {
+                  state = state.copyWith(statusMessage: error.toString());
+                }),
+              );
               state = state.copyWith(liveTranscript: '');
             } else {
               state = state.copyWith(liveTranscript: chunk.text);
-              unawaited(_detectCatchphrases(chunk.text));
+              unawaited(_detectCatchphrases(chunk.text).catchError((_) {}));
             }
           });
       _transcriptionErrorSubscription?.cancel();
@@ -446,9 +450,13 @@ class RecordingController extends Notifier<RecordingStatus> {
   Future<void> _persistTranscriptChunk(String text) async {
     final database = ref.read(databaseProvider);
     await database.appendTranscript(DateTime.now(), text);
-    await ref
-        .read(insightControllerProvider.notifier)
-        .refreshFromTranscript(text);
+    try {
+      await ref
+          .read(insightControllerProvider.notifier)
+          .refreshFromTranscript(text);
+    } on Exception {
+      // Insight generation is derived from the transcript and can be retried.
+    }
     await _detectCatchphrases(text);
   }
 

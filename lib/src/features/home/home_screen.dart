@@ -39,7 +39,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           unawaited(
-            ref.read(insightControllerProvider.notifier).refreshToday(),
+            ref
+                .read(insightControllerProvider.notifier)
+                .refreshToday()
+                .catchError((_) {}),
           );
         }
       });

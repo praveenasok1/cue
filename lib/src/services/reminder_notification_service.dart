@@ -11,48 +11,59 @@ class ReminderNotificationService {
 
   Future<void> initialize() async {
     if (_initialized) return;
-    const initializationSettings = InitializationSettings(
-      android: AndroidInitializationSettings('@drawable/ic_launcher'),
-      iOS: DarwinInitializationSettings(
-        requestAlertPermission: true,
-        requestBadgePermission: true,
-        requestSoundPermission: true,
-      ),
-    );
-    await _notifications.initialize(settings: initializationSettings);
-    await _notifications
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >()
-        ?.requestPermissions(alert: true, badge: true, sound: true);
-    await _notifications
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.requestNotificationsPermission();
-    _initialized = true;
+    try {
+      const initializationSettings = InitializationSettings(
+        android: AndroidInitializationSettings('@drawable/ic_launcher'),
+        iOS: DarwinInitializationSettings(
+          requestAlertPermission: true,
+          requestBadgePermission: true,
+          requestSoundPermission: true,
+        ),
+      );
+      await _notifications.initialize(settings: initializationSettings);
+      await _notifications
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
+      await _notifications
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.requestNotificationsPermission();
+      _initialized = true;
+    } on Exception {
+      _initialized = false;
+    }
   }
 
   Future<void> showReminder(CueReminder reminder) async {
     await initialize();
-    await _notifications.show(
-      id: reminder.id,
-      title: 'CUE reminder',
-      body: reminder.text,
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'cue_reminders',
-          'CUE reminders',
-          channelDescription: 'Automatic reminders generated from transcripts.',
-          importance: Importance.high,
-          priority: Priority.high,
+    if (!_initialized) return;
+    try {
+      await _notifications.show(
+        id: reminder.id,
+        title: 'CUE reminder',
+        body: reminder.text,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'cue_reminders',
+            'CUE reminders',
+            channelDescription:
+                'Automatic reminders generated from transcripts.',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
         ),
-        iOS: DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-        ),
-      ),
-    );
+      );
+    } on Exception {
+      // Reminder persistence is the source of truth; notification delivery is
+      // best-effort because users can deny notification permissions.
+    }
   }
 }
