@@ -27,3 +27,8 @@ flutter run
 The native earphone route listeners are implemented in Android Kotlin and iOS
 Swift. Run on a physical device for the full recording, Bluetooth, microphone,
 and location behavior.
+
+## iOS signing
+
+To sign CUE with your Apple Developer account and install it on your iPhone,
+see [docs/ios-signing.md](docs/ios-signing.md).
