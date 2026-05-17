@@ -75,7 +75,8 @@ class AudioRouteService {
           latest = fallback;
           yield latest;
         }
-        return;
+        // iOS can create the FlutterViewController just after Dart starts.
+        // Keep retrying until the native channel has attached.
       }
 
       await Future<void>.delayed(const Duration(seconds: 2));

@@ -8,6 +8,7 @@ import UIKit
   private let routeChannelName = "cue/audio_route"
   private let routeEventsChannelName = "cue/audio_route_events"
   private var routeEventSink: FlutterEventSink?
+  private var routeChannelsAttached = false
 
   override func application(
     _ application: UIApplication,
@@ -23,30 +24,6 @@ import UIKit
     }
 
     prepareAudioSession()
-    guard let messenger = audioRouteBinaryMessenger() else {
-      NSLog("CUE: failed to attach audio route channels")
-      return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-    }
-
-    FlutterMethodChannel(
-      name: routeChannelName,
-      binaryMessenger: messenger
-    ).setMethodCallHandler { [weak self] call, result in
-      switch call.method {
-      case "currentRoute":
-        result(self?.currentRouteState() ?? self?.fallbackRouteState())
-      case "prepareEarphoneMic":
-        self?.prepareEarphoneMic()
-        result(self?.currentRouteState() ?? self?.fallbackRouteState())
-      default:
-        result(FlutterMethodNotImplemented)
-      }
-    }
-
-    FlutterEventChannel(
-      name: routeEventsChannelName,
-      binaryMessenger: messenger
-    ).setStreamHandler(self)
 
     // Listen for audio route changes (covers wired + Bluetooth + AirPods removal).
     NotificationCenter.default.addObserver(
@@ -63,7 +40,9 @@ import UIKit
       object: nil
     )
 
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    attachAudioRouteChannelsWhenReady()
+    return launched
   }
 
   // MARK: - FlutterStreamHandler
@@ -121,6 +100,58 @@ import UIKit
       guard let self else { return }
       self.routeEventSink?(self.currentRouteState())
     }
+  }
+
+  // MARK: - Flutter channels
+
+  private func attachAudioRouteChannelsWhenReady(attempt: Int = 0) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay(for: attempt)) { [weak self] in
+      guard let self else { return }
+      if self.attachAudioRouteChannels() { return }
+      if attempt < 12 {
+        self.attachAudioRouteChannelsWhenReady(attempt: attempt + 1)
+      } else {
+        NSLog("CUE: failed to attach audio route channels after launch")
+      }
+    }
+  }
+
+  private func attachAudioRouteChannels() -> Bool {
+    if routeChannelsAttached { return true }
+    guard let messenger = audioRouteBinaryMessenger() else {
+      return false
+    }
+
+    FlutterMethodChannel(
+      name: routeChannelName,
+      binaryMessenger: messenger
+    ).setMethodCallHandler { [weak self] call, result in
+      switch call.method {
+      case "currentRoute":
+        result(self?.currentRouteState() ?? self?.fallbackRouteState())
+      case "prepareEarphoneMic":
+        self?.prepareEarphoneMic()
+        result(self?.currentRouteState() ?? self?.fallbackRouteState())
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    FlutterEventChannel(
+      name: routeEventsChannelName,
+      binaryMessenger: messenger
+    ).setStreamHandler(self)
+
+    routeChannelsAttached = true
+    emitRouteState()
+    return true
+  }
+
+  private func retryDelay(for attempt: Int) -> DispatchTimeInterval {
+    if attempt == 0 {
+      return .milliseconds(0)
+    }
+    return .milliseconds(250)
   }
 
   // MARK: - Route state
