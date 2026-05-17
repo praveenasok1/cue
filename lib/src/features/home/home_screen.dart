@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -55,22 +57,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: CueColors.primary,
-        foregroundColor: Colors.white,
-        onPressed: () => _showCatchphraseSheet(context, ref),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Catchphrase'),
-      ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
           children: const [
             _RecordingHero(),
             SizedBox(height: 18),
             _TranscriptPanel(),
-            SizedBox(height: 18),
-            _CatchphrasePanel(),
             SizedBox(height: 18),
             _RecentHitsPanel(),
           ],
@@ -499,62 +492,6 @@ class _TextHighlight {
   final Color color;
 }
 
-class _CatchphrasePanel extends ConsumerWidget {
-  const _CatchphrasePanel();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final catchphrases = ref.watch(catchphrasesProvider);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _SectionHeader(
-              title: 'Catchphrases',
-              subtitle: 'Two or more words, habit polarity, color, notes.',
-              icon: Icons.auto_awesome_rounded,
-            ),
-            const SizedBox(height: 12),
-            catchphrases.when(
-              data: (items) {
-                if (items.isEmpty) {
-                  return const Text(
-                    'Add a phrase like "drink water" or "skip workout".',
-                  );
-                }
-                return Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final item in items)
-                      InputChip(
-                        avatar: CircleAvatar(
-                          backgroundColor: item.color,
-                          child: Text(
-                            item.polarity.symbol,
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                        ),
-                        label: Text(item.phrase),
-                        onDeleted: () => ref
-                            .read(catchphraseControllerProvider.notifier)
-                            .delete(item.id),
-                      ),
-                  ],
-                );
-              },
-              loading: () => const LinearProgressIndicator(),
-              error: (error, _) => Text('Could not load catchphrases: $error'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _RecentHitsPanel extends ConsumerWidget {
   const _RecentHitsPanel();
 
@@ -715,47 +652,136 @@ class _MoodPicker extends StatelessWidget {
 Future<void> _showSettings(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     showDragHandle: true,
     builder: (context) => Consumer(
       builder: (context, ref, _) {
         final themeMode = ref.watch(themeModeControllerProvider);
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const _SectionHeader(
-                title: 'Settings',
-                subtitle: 'CUE starts in light mode by default.',
-                icon: Icons.settings_rounded,
-              ),
-              const SizedBox(height: 16),
-              SegmentedButton<ThemeMode>(
-                segments: const [
-                  ButtonSegment(
-                    value: ThemeMode.light,
-                    label: Text('Light'),
-                    icon: Icon(Icons.light_mode_rounded),
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.72,
+          minChildSize: 0.45,
+          maxChildSize: 0.92,
+          builder: (context, scrollController) {
+            return ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
+              children: [
+                const _SectionHeader(
+                  title: 'Settings',
+                  subtitle: 'CUE starts in light mode by default.',
+                  icon: Icons.settings_rounded,
+                ),
+                const SizedBox(height: 16),
+                SegmentedButton<ThemeMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: ThemeMode.light,
+                      label: Text('Light'),
+                      icon: Icon(Icons.light_mode_rounded),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.dark,
+                      label: Text('Dark'),
+                      icon: Icon(Icons.dark_mode_rounded),
+                    ),
+                  ],
+                  selected: {themeMode},
+                  onSelectionChanged: (selection) {
+                    ref
+                        .read(themeModeControllerProvider.notifier)
+                        .setThemeMode(selection.single);
+                  },
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Audio catchphrases',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () => _showCatchphraseSheet(context, ref),
+                      icon: const Icon(Icons.mic_rounded),
+                      label: const Text('Record'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Each catchphrase has a short audio sample, a text label used for transcript matching, and a highlight color.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
-                  ButtonSegment(
-                    value: ThemeMode.dark,
-                    label: Text('Dark'),
-                    icon: Icon(Icons.dark_mode_rounded),
-                  ),
-                ],
-                selected: {themeMode},
-                onSelectionChanged: (selection) {
-                  ref
-                      .read(themeModeControllerProvider.notifier)
-                      .setThemeMode(selection.single);
-                },
-              ),
-            ],
-          ),
+                ),
+                const SizedBox(height: 12),
+                const _CatchphraseList(compact: true),
+              ],
+            );
+          },
         );
       },
     ),
   );
+}
+
+class _CatchphraseList extends ConsumerWidget {
+  const _CatchphraseList({this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final catchphrases = ref.watch(catchphrasesProvider);
+    return catchphrases.when(
+      data: (items) {
+        if (items.isEmpty) {
+          return Text(
+            'No audio catchphrases yet. Tap Record to add one.',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          );
+        }
+        return Column(
+          children: [
+            for (final item in items)
+              ListTile(
+                dense: compact,
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: item.color,
+                  child: const Icon(
+                    Icons.graphic_eq_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+                title: Text(item.phrase),
+                subtitle: Text(
+                  item.audioPath == null
+                      ? 'Legacy text-only catchphrase'
+                      : 'Voice sample saved',
+                ),
+                trailing: IconButton(
+                  tooltip: 'Delete',
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  onPressed: () => ref
+                      .read(catchphraseControllerProvider.notifier)
+                      .delete(item.id),
+                ),
+              ),
+          ],
+        );
+      },
+      loading: () => const LinearProgressIndicator(),
+      error: (error, _) => Text('Could not load catchphrases: $error'),
+    );
+  }
 }
 
 Future<void> _showCatchphraseSheet(BuildContext context, WidgetRef ref) {
@@ -787,15 +813,20 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
   ];
 
   final _phraseController = TextEditingController();
-  final _notesController = TextEditingController();
-  HabitPolarity _polarity = HabitPolarity.desired;
   Color _color = _colors.first;
+  bool _isRecording = false;
+  String? _audioPath;
   String? _error;
 
   @override
   void dispose() {
     _phraseController.dispose();
-    _notesController.dispose();
+    if (_isRecording) {
+      widget.ref
+          .read(catchphraseAudioServiceProvider)
+          .stopSampleRecording()
+          .ignore();
+    }
     super.dispose();
   }
 
@@ -814,37 +845,61 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const _SectionHeader(
-              title: 'New catchphrase',
-              subtitle: 'Minimum two words. CUE will listen for exact phrases.',
+              title: 'Record catchphrase',
+              subtitle:
+                  'Say the phrase once, then add its text label and highlight color.',
               icon: Icons.add_reaction_rounded,
             ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _isRecording
+                      ? CueColors.negative
+                      : CueColors.primary,
+                ),
+                icon: Icon(
+                  _isRecording ? Icons.stop_rounded : Icons.mic_rounded,
+                ),
+                label: Text(
+                  _isRecording
+                      ? 'Stop recording sample'
+                      : _audioPath == null
+                      ? 'Record audio sample'
+                      : 'Re-record audio sample',
+                ),
+                onPressed: _toggleRecording,
+              ),
+            ),
+            if (_audioPath != null && !_isRecording) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    color: CueColors.positive,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Audio sample saved',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
             TextField(
               controller: _phraseController,
               textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(
-                labelText: 'Catchphrase',
+                labelText: 'Text label',
                 hintText: 'for example: drink water',
               ),
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<HabitPolarity>(
-              segments: const [
-                ButtonSegment(
-                  value: HabitPolarity.desired,
-                  label: Text('Desired +'),
-                  icon: Icon(Icons.trending_up_rounded),
-                ),
-                ButtonSegment(
-                  value: HabitPolarity.undesired,
-                  label: Text('Undesired -'),
-                  icon: Icon(Icons.trending_down_rounded),
-                ),
-              ],
-              selected: {_polarity},
-              onSelectionChanged: (selection) {
-                setState(() => _polarity = selection.single);
-              },
             ),
             const SizedBox(height: 14),
             Wrap(
@@ -859,16 +914,6 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
                   ),
               ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _notesController,
-              minLines: 2,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                labelText: 'Optional notes',
-                hintText: 'Why this phrase matters',
-              ),
-            ),
             if (_error != null) ...[
               const SizedBox(height: 10),
               Text(_error!, style: const TextStyle(color: CueColors.negative)),
@@ -878,8 +923,8 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
               width: double.infinity,
               child: FilledButton.icon(
                 icon: const Icon(Icons.check_rounded),
-                label: const Text('Save catchphrase'),
-                onPressed: _save,
+                label: const Text('Save audio catchphrase'),
+                onPressed: _isRecording ? null : _save,
               ),
             ),
           ],
@@ -888,15 +933,43 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
     );
   }
 
+  Future<void> _toggleRecording() async {
+    setState(() => _error = null);
+    try {
+      final service = widget.ref.read(catchphraseAudioServiceProvider);
+      if (_isRecording) {
+        final path = await service.stopSampleRecording();
+        setState(() {
+          _isRecording = false;
+          _audioPath = path ?? _audioPath;
+        });
+      } else {
+        final path = await service.startSampleRecording();
+        setState(() {
+          _isRecording = true;
+          _audioPath = path;
+        });
+      }
+    } catch (error) {
+      setState(() {
+        _isRecording = false;
+        _error = error.toString();
+      });
+    }
+  }
+
   Future<void> _save() async {
     try {
+      final audioPath = _audioPath;
+      if (audioPath == null) {
+        throw ArgumentError('Record an audio sample first.');
+      }
       await widget.ref
           .read(catchphraseControllerProvider.notifier)
           .add(
             phrase: _phraseController.text,
-            polarity: _polarity,
             color: _color,
-            notes: _notesController.text,
+            audioPath: audioPath,
           );
       if (mounted) Navigator.of(context).pop();
     } catch (error) {

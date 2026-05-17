@@ -34,6 +34,7 @@ class Catchphrase {
     required this.polarity,
     required this.color,
     required this.createdAt,
+    this.audioPath,
     this.notes,
   });
 
@@ -41,6 +42,7 @@ class Catchphrase {
   final String phrase;
   final HabitPolarity polarity;
   final Color color;
+  final String? audioPath;
   final String? notes;
   final DateTime createdAt;
 

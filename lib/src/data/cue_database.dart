@@ -15,7 +15,7 @@ class CueDatabase extends GeneratedDatabase {
   final _sessionsChanged = StreamController<void>.broadcast();
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   Iterable<TableInfo<Table, dynamic>> get allTables => const [];
@@ -29,6 +29,7 @@ CREATE TABLE catchphrases (
   phrase TEXT NOT NULL UNIQUE,
   polarity TEXT NOT NULL CHECK (polarity IN ('+', '-')),
   color_value INTEGER NOT NULL,
+  audio_path TEXT,
   notes TEXT,
   created_at INTEGER NOT NULL
 );
@@ -68,6 +69,13 @@ CREATE TABLE catchphrase_hits (
         'ON catchphrase_hits(spoken_at);',
       );
     },
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await customStatement(
+          'ALTER TABLE catchphrases ADD COLUMN audio_path TEXT;',
+        );
+      }
+    },
   );
 
   Stream<List<Catchphrase>> watchCatchphrases() {
@@ -85,6 +93,7 @@ CREATE TABLE catchphrase_hits (
     required String phrase,
     required HabitPolarity polarity,
     required Color color,
+    required String audioPath,
     String? notes,
   }) async {
     _validateCatchphrase(phrase);
@@ -92,13 +101,20 @@ CREATE TABLE catchphrase_hits (
     final now = DateTime.now();
     await customStatement(
       '''
-INSERT INTO catchphrases (phrase, polarity, color_value, notes, created_at)
-VALUES (?, ?, ?, ?, ?);
+INSERT INTO catchphrases (
+  phrase,
+  polarity,
+  color_value,
+  audio_path,
+  notes,
+  created_at
+) VALUES (?, ?, ?, ?, ?, ?);
 ''',
       [
         Variable.withString(normalized),
         Variable.withString(polarity.symbol),
         Variable.withInt(color.toARGB32()),
+        Variable.withString(audioPath),
         notes == null || notes.trim().isEmpty
             ? const Variable(null)
             : Variable.withString(notes.trim()),
@@ -112,6 +128,7 @@ VALUES (?, ?, ?, ?, ?);
       phrase: normalized,
       polarity: polarity,
       color: color,
+      audioPath: audioPath,
       notes: notes?.trim(),
       createdAt: now,
     );
@@ -207,6 +224,7 @@ SELECT
   c.phrase,
   c.polarity,
   c.color_value,
+  c.audio_path,
   c.notes,
   c.created_at
 FROM catchphrase_hits h
@@ -349,6 +367,7 @@ WHERE id = ? AND ended_at IS NULL;
       phrase: row.read<String>('phrase'),
       polarity: HabitPolarity.fromSymbol(row.read<String>('polarity')),
       color: Color(row.read<int>('color_value')),
+      audioPath: row.readNullable<String>('audio_path'),
       notes: row.readNullable<String>('notes'),
       createdAt: _dateFromMillis(row.read<int>('created_at')),
     );
@@ -390,8 +409,8 @@ WHERE id = ? AND ended_at IS NULL;
         .split(RegExp(r'\s+'))
         .where((word) => word.isNotEmpty)
         .length;
-    if (wordCount < 2) {
-      throw ArgumentError('Catchphrases must contain at least two words.');
+    if (wordCount < 1) {
+      throw ArgumentError('Add a text label for this audio catchphrase.');
     }
   }
 

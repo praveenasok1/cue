@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'data/cue_database.dart';
 import 'data/models.dart';
 import 'services/audio_route_service.dart';
+import 'services/catchphrase_audio_service.dart';
 import 'services/foreground_recording_service.dart';
 import 'services/location_service.dart';
 import 'services/recording_service.dart';
@@ -28,6 +29,14 @@ final audioRouteProvider = StreamProvider<AudioRouteState>((ref) {
 
 final recordingServiceProvider = Provider<RecordingService>((ref) {
   final service = RecordingService();
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+final catchphraseAudioServiceProvider = Provider<CatchphraseAudioService>((
+  ref,
+) {
+  final service = CatchphraseAudioService();
   ref.onDispose(service.dispose);
   return service;
 });
@@ -98,17 +107,16 @@ class CatchphraseController extends Notifier<void> {
 
   Future<void> add({
     required String phrase,
-    required HabitPolarity polarity,
     required Color color,
-    String? notes,
+    required String audioPath,
   }) {
     return ref
         .read(databaseProvider)
         .addCatchphrase(
           phrase: phrase,
-          polarity: polarity,
+          polarity: HabitPolarity.desired,
           color: color,
-          notes: notes,
+          audioPath: audioPath,
         );
   }
 
