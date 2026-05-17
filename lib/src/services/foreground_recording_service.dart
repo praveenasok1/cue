@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:flutter/services.dart';
 
 void configureForegroundTask() {
   FlutterForegroundTask.init(
@@ -73,15 +74,24 @@ class CueForegroundTaskHandler extends TaskHandler {
 }
 
 class ForegroundRecordingService {
+  bool get _supportsForegroundService {
+    return !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  }
+
   Future<void> ensurePermissions() async {
-    final notificationPermission =
-        await FlutterForegroundTask.checkNotificationPermission();
-    if (notificationPermission != NotificationPermission.granted) {
-      await FlutterForegroundTask.requestNotificationPermission();
+    try {
+      final notificationPermission =
+          await FlutterForegroundTask.checkNotificationPermission();
+      if (notificationPermission != NotificationPermission.granted) {
+        await FlutterForegroundTask.requestNotificationPermission();
+      }
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
     }
 
-    if (!kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.android &&
+    if (_supportsForegroundService &&
         !await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
       await FlutterForegroundTask.requestIgnoreBatteryOptimization();
     }
@@ -89,23 +99,38 @@ class ForegroundRecordingService {
 
   Future<void> start() async {
     await ensurePermissions();
-    if (await FlutterForegroundTask.isRunningService) {
-      await FlutterForegroundTask.restartService();
+    if (!_supportsForegroundService) return;
+
+    try {
+      if (await FlutterForegroundTask.isRunningService) {
+        await FlutterForegroundTask.restartService();
+        return;
+      }
+
+      await FlutterForegroundTask.startService(
+        serviceId: 1001,
+        notificationTitle: 'CUE is recording',
+        notificationText: 'Earphone session active',
+        notificationInitialRoute: '/',
+        callback: cueForegroundTaskCallback,
+      );
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
       return;
     }
-
-    await FlutterForegroundTask.startService(
-      serviceId: 1001,
-      notificationTitle: 'CUE is recording',
-      notificationText: 'Earphone session active',
-      notificationInitialRoute: '/',
-      callback: cueForegroundTaskCallback,
-    );
   }
 
   Future<void> stop() async {
-    if (await FlutterForegroundTask.isRunningService) {
-      await FlutterForegroundTask.stopService();
+    if (!_supportsForegroundService) return;
+    try {
+      if (await FlutterForegroundTask.isRunningService) {
+        await FlutterForegroundTask.stopService();
+      }
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
     }
   }
 }
