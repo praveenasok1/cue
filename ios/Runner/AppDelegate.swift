@@ -106,7 +106,7 @@ import UIKit
 
   // MARK: - Flutter channels
 
-  private func attachAudioRouteChannelsWhenReady(attempt: Int = 0) {
+  func attachAudioRouteChannelsWhenReady(attempt: Int = 0) {
     DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay(for: attempt)) { [weak self] in
       guard let self else { return }
       if self.attachAudioRouteChannels() { return }
@@ -249,6 +249,35 @@ import UIKit
   private func audioRouteBinaryMessenger() -> FlutterBinaryMessenger? {
     if let vc = window?.rootViewController as? FlutterViewController {
       return vc.binaryMessenger
+    }
+    for scene in UIApplication.shared.connectedScenes {
+      guard let windowScene = scene as? UIWindowScene else { continue }
+      for window in windowScene.windows {
+        if let vc = flutterViewController(in: window.rootViewController) {
+          return vc.binaryMessenger
+        }
+      }
+    }
+    return nil
+  }
+
+  private func flutterViewController(in root: UIViewController?) -> FlutterViewController? {
+    if let flutter = root as? FlutterViewController {
+      return flutter
+    }
+    if let navigation = root as? UINavigationController {
+      return flutterViewController(in: navigation.visibleViewController)
+    }
+    if let tab = root as? UITabBarController {
+      return flutterViewController(in: tab.selectedViewController)
+    }
+    if let presented = root?.presentedViewController {
+      return flutterViewController(in: presented)
+    }
+    for child in root?.children ?? [] {
+      if let flutter = flutterViewController(in: child) {
+        return flutter
+      }
     }
     return nil
   }
