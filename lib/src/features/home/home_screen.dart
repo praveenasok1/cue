@@ -18,6 +18,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int? _shownPromptId;
+  bool _requestedInsights = false;
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +34,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         }
       },
     );
+    if (!_requestedInsights) {
+      _requestedInsights = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(
+            ref.read(insightControllerProvider.notifier).refreshToday(),
+          );
+        }
+      });
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -64,6 +75,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             _RecordingHero(),
             SizedBox(height: 18),
             _TranscriptPanel(),
+            SizedBox(height: 18),
+            _DailySummaryPanel(),
+            SizedBox(height: 18),
+            _RemindersPanel(),
             SizedBox(height: 18),
             _RecentHitsPanel(),
           ],
@@ -627,6 +642,163 @@ class _TextHighlight {
   final int start;
   final int end;
   final Color color;
+}
+
+class _DailySummaryPanel extends ConsumerWidget {
+  const _DailySummaryPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final summary = ref.watch(todaySummaryProvider);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SectionHeader(
+              title: 'Daily summary',
+              subtitle: 'Automatically generated from today\'s transcript.',
+              icon: Icons.auto_stories_rounded,
+            ),
+            const SizedBox(height: 14),
+            summary.when(
+              data: (value) {
+                if (value == null) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'No summary yet. CUE will summarize once transcript text is captured.',
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () => ref
+                            .read(insightControllerProvider.notifier)
+                            .refreshToday(),
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Generate now'),
+                      ),
+                    ],
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      value.summary,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyLarge?.copyWith(height: 1.4),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _MetricChip(
+                          icon: Icons.notes_rounded,
+                          label: '${value.wordCount} words',
+                        ),
+                        _MetricChip(
+                          icon: Icons.radar_rounded,
+                          label: '${value.catchphraseCount} reports',
+                        ),
+                        _MetricChip(
+                          icon: Icons.notifications_active_rounded,
+                          label: '${value.reminderCount} reminders',
+                        ),
+                        for (final keyword in value.keywords)
+                          _MetricChip(icon: Icons.tag_rounded, label: keyword),
+                      ],
+                    ),
+                  ],
+                );
+              },
+              loading: () => const LinearProgressIndicator(),
+              error: (error, _) => Text('Could not load summary: $error'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RemindersPanel extends ConsumerWidget {
+  const _RemindersPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reminders = ref.watch(openRemindersProvider);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SectionHeader(
+              title: 'Automatic reminders',
+              subtitle:
+                  'Created when CUE hears phrases like "remind me to" or "I need to".',
+              icon: Icons.notifications_active_rounded,
+            ),
+            const SizedBox(height: 12),
+            reminders.when(
+              data: (items) {
+                if (items.isEmpty) {
+                  return const Text(
+                    'No open reminders yet. Try saying "remind me to call Sam tomorrow".',
+                  );
+                }
+                return Column(
+                  children: [
+                    for (final reminder in items)
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: reminder.completed,
+                        onChanged: (_) => ref
+                            .read(insightControllerProvider.notifier)
+                            .completeReminder(reminder.id),
+                        title: Text(reminder.text),
+                        subtitle: Text(_reminderSubtitle(reminder)),
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                  ],
+                );
+              },
+              loading: () => const LinearProgressIndicator(),
+              error: (error, _) => Text('Could not load reminders: $error'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _reminderSubtitle(CueReminder reminder) {
+    final created = DateFormat.MMMd().add_jm().format(reminder.createdAt);
+    final due = reminder.dueAt == null
+        ? 'No due time inferred'
+        : 'Due ${DateFormat.MMMd().add_jm().format(reminder.dueAt!)}';
+    return '$due - Heard: "${reminder.sourceText}" - $created';
+  }
+}
+
+class _MetricChip extends StatelessWidget {
+  const _MetricChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      avatar: Icon(icon, size: 16, color: CueColors.primary),
+      label: Text(label),
+      side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+    );
+  }
 }
 
 class _RecentHitsPanel extends ConsumerWidget {

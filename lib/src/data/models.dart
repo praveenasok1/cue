@@ -61,6 +61,46 @@ class DailyTranscript {
   final DateTime updatedAt;
 }
 
+class DailySummary {
+  const DailySummary({
+    required this.day,
+    required this.summary,
+    required this.wordCount,
+    required this.catchphraseCount,
+    required this.reminderCount,
+    required this.updatedAt,
+    this.keywords = const [],
+  });
+
+  final DateTime day;
+  final String summary;
+  final int wordCount;
+  final int catchphraseCount;
+  final int reminderCount;
+  final List<String> keywords;
+  final DateTime updatedAt;
+}
+
+class CueReminder {
+  const CueReminder({
+    required this.id,
+    required this.text,
+    required this.sourceText,
+    required this.createdAt,
+    required this.completed,
+    this.dueAt,
+    this.completedAt,
+  });
+
+  final int id;
+  final String text;
+  final String sourceText;
+  final DateTime createdAt;
+  final DateTime? dueAt;
+  final bool completed;
+  final DateTime? completedAt;
+}
+
 class RecordingSession {
   const RecordingSession({
     required this.id,

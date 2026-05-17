@@ -13,9 +13,11 @@ class CueDatabase extends GeneratedDatabase {
   final _transcriptChanged = StreamController<void>.broadcast();
   final _hitsChanged = StreamController<void>.broadcast();
   final _sessionsChanged = StreamController<void>.broadcast();
+  final _summaryChanged = StreamController<void>.broadcast();
+  final _remindersChanged = StreamController<void>.broadcast();
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   Iterable<TableInfo<Table, dynamic>> get allTables => const [];
@@ -64,6 +66,8 @@ CREATE TABLE catchphrase_hits (
   acknowledged INTEGER NOT NULL DEFAULT 0
 );
 ''');
+      await _createDailySummariesTable();
+      await _createRemindersTable();
       await customStatement(
         'CREATE INDEX catchphrase_hits_spoken_at '
         'ON catchphrase_hits(spoken_at);',
@@ -75,8 +79,45 @@ CREATE TABLE catchphrase_hits (
           'ALTER TABLE catchphrases ADD COLUMN audio_path TEXT;',
         );
       }
+      if (from < 3) {
+        await _createDailySummariesTable();
+        await _createRemindersTable();
+      }
     },
   );
+
+  Future<void> _createDailySummariesTable() {
+    return customStatement('''
+CREATE TABLE IF NOT EXISTS daily_summaries (
+  day TEXT PRIMARY KEY,
+  summary TEXT NOT NULL,
+  word_count INTEGER NOT NULL,
+  catchphrase_count INTEGER NOT NULL,
+  reminder_count INTEGER NOT NULL,
+  keywords TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+''');
+  }
+
+  Future<void> _createRemindersTable() async {
+    await customStatement('''
+CREATE TABLE IF NOT EXISTS reminders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_key TEXT NOT NULL UNIQUE,
+  text TEXT NOT NULL,
+  source_text TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  due_at INTEGER,
+  completed INTEGER NOT NULL DEFAULT 0,
+  completed_at INTEGER
+);
+''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS reminders_completed_due '
+      'ON reminders(completed, due_at);',
+    );
+  }
 
   Stream<List<Catchphrase>> watchCatchphrases() {
     return _watch(_catchphrasesChanged.stream, getCatchphrases);
@@ -194,6 +235,159 @@ LIMIT ?;
       variables: [Variable.withInt(limit)],
     ).get();
     return rows.map(_hitFromRow).toList(growable: false);
+  }
+
+  Future<List<CatchphraseHit>> getHitsForDay(DateTime day) async {
+    final start = _dateOnly(day);
+    final end = start.add(const Duration(days: 1));
+    final rows = await customSelect(
+      '''
+SELECT * FROM catchphrase_hits
+WHERE spoken_at >= ? AND spoken_at < ?
+ORDER BY spoken_at DESC;
+''',
+      variables: [
+        Variable.withInt(start.millisecondsSinceEpoch),
+        Variable.withInt(end.millisecondsSinceEpoch),
+      ],
+    ).get();
+    return rows.map(_hitFromRow).toList(growable: false);
+  }
+
+  Stream<DailySummary?> watchTodaySummary() {
+    return watchDailySummary(DateTime.now());
+  }
+
+  Stream<DailySummary?> watchDailySummary(DateTime day) {
+    return _watch(_summaryChanged.stream, () => getDailySummary(day));
+  }
+
+  Future<DailySummary?> getDailySummary(DateTime day) async {
+    final rows = await customSelect(
+      'SELECT * FROM daily_summaries WHERE day = ? LIMIT 1;',
+      variables: [Variable.withString(_dayKey(day))],
+    ).get();
+    if (rows.isEmpty) return null;
+    return _summaryFromRow(rows.single);
+  }
+
+  Future<void> upsertDailySummary(DailySummary summary) async {
+    await customStatement(
+      '''
+INSERT INTO daily_summaries (
+  day,
+  summary,
+  word_count,
+  catchphrase_count,
+  reminder_count,
+  keywords,
+  updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(day) DO UPDATE SET
+  summary = excluded.summary,
+  word_count = excluded.word_count,
+  catchphrase_count = excluded.catchphrase_count,
+  reminder_count = excluded.reminder_count,
+  keywords = excluded.keywords,
+  updated_at = excluded.updated_at;
+''',
+      [
+        _dayKey(summary.day),
+        summary.summary,
+        summary.wordCount,
+        summary.catchphraseCount,
+        summary.reminderCount,
+        summary.keywords.join(','),
+        summary.updatedAt.millisecondsSinceEpoch,
+      ],
+    );
+    _summaryChanged.add(null);
+  }
+
+  Stream<List<CueReminder>> watchOpenReminders() {
+    return _watch(_remindersChanged.stream, getOpenReminders);
+  }
+
+  Future<List<CueReminder>> getOpenReminders() async {
+    final rows = await customSelect('''
+SELECT * FROM reminders
+WHERE completed = 0
+ORDER BY due_at IS NULL, due_at ASC, created_at DESC;
+''').get();
+    return rows.map(_reminderFromRow).toList(growable: false);
+  }
+
+  Future<List<CueReminder>> getRemindersForDay(DateTime day) async {
+    final start = _dateOnly(day);
+    final end = start.add(const Duration(days: 1));
+    final rows = await customSelect(
+      '''
+SELECT * FROM reminders
+WHERE created_at >= ? AND created_at < ?
+ORDER BY created_at DESC;
+''',
+      variables: [
+        Variable.withInt(start.millisecondsSinceEpoch),
+        Variable.withInt(end.millisecondsSinceEpoch),
+      ],
+    ).get();
+    return rows.map(_reminderFromRow).toList(growable: false);
+  }
+
+  Future<CueReminder?> addReminderIfAbsent({
+    required String text,
+    required String sourceText,
+    DateTime? dueAt,
+  }) async {
+    final normalized = _reminderKey(text);
+    if (normalized.isEmpty) return null;
+    final existing = await customSelect(
+      'SELECT * FROM reminders WHERE source_key = ? LIMIT 1;',
+      variables: [Variable.withString(normalized)],
+    ).get();
+    if (existing.isNotEmpty) return null;
+
+    final now = DateTime.now();
+    await customStatement(
+      '''
+INSERT INTO reminders (
+  source_key,
+  text,
+  source_text,
+  created_at,
+  due_at
+) VALUES (?, ?, ?, ?, ?);
+''',
+      [
+        normalized,
+        text,
+        sourceText,
+        now.millisecondsSinceEpoch,
+        dueAt?.millisecondsSinceEpoch,
+      ],
+    );
+    final id = await _lastInsertId();
+    _remindersChanged.add(null);
+    return CueReminder(
+      id: id,
+      text: text,
+      sourceText: sourceText,
+      createdAt: now,
+      dueAt: dueAt,
+      completed: false,
+    );
+  }
+
+  Future<void> completeReminder(int id) async {
+    await customStatement(
+      '''
+UPDATE reminders
+SET completed = 1, completed_at = ?
+WHERE id = ?;
+''',
+      [DateTime.now().millisecondsSinceEpoch, id],
+    );
+    _remindersChanged.add(null);
   }
 
   Stream<PendingCatchphrasePrompt?> watchPendingPrompt() {
@@ -364,6 +558,37 @@ WHERE id = ? AND ended_at IS NULL;
     );
   }
 
+  DailySummary _summaryFromRow(QueryRow row) {
+    final keywords = row
+        .read<String>('keywords')
+        .split(',')
+        .where((keyword) => keyword.trim().isNotEmpty)
+        .toList(growable: false);
+    return DailySummary(
+      day: _dateFromKey(row.read<String>('day')),
+      summary: row.read<String>('summary'),
+      wordCount: row.read<int>('word_count'),
+      catchphraseCount: row.read<int>('catchphrase_count'),
+      reminderCount: row.read<int>('reminder_count'),
+      keywords: keywords,
+      updatedAt: _dateFromMillis(row.read<int>('updated_at')),
+    );
+  }
+
+  CueReminder _reminderFromRow(QueryRow row) {
+    return CueReminder(
+      id: row.read<int>('id'),
+      text: row.read<String>('text'),
+      sourceText: row.read<String>('source_text'),
+      createdAt: _dateFromMillis(row.read<int>('created_at')),
+      dueAt: _nullableDateFromMillis(row.readNullable<int>('due_at')),
+      completed: row.read<int>('completed') == 1,
+      completedAt: _nullableDateFromMillis(
+        row.readNullable<int>('completed_at'),
+      ),
+    );
+  }
+
   CatchphraseHit _hitFromRow(QueryRow row) {
     return CatchphraseHit(
       id: row.read<int>('id'),
@@ -403,6 +628,8 @@ WHERE id = ? AND ended_at IS NULL;
     await _transcriptChanged.close();
     await _hitsChanged.close();
     await _sessionsChanged.close();
+    await _summaryChanged.close();
+    await _remindersChanged.close();
     return super.close();
   }
 }
@@ -427,4 +654,16 @@ DateTime _dateFromKey(String key) {
 
 DateTime _dateFromMillis(int millis) {
   return DateTime.fromMillisecondsSinceEpoch(millis);
+}
+
+DateTime? _nullableDateFromMillis(int? millis) {
+  return millis == null ? null : DateTime.fromMillisecondsSinceEpoch(millis);
+}
+
+String _reminderKey(String text) {
+  return text
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9 ]+'), '')
+      .replaceAll(RegExp(r'\s+'), ' ');
 }

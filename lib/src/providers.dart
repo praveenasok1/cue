@@ -8,8 +8,10 @@ import 'data/cue_database.dart';
 import 'data/models.dart';
 import 'services/audio_route_service.dart';
 import 'services/catchphrase_audio_service.dart';
+import 'services/daily_insight_service.dart';
 import 'services/foreground_recording_service.dart';
 import 'services/location_service.dart';
+import 'services/reminder_notification_service.dart';
 import 'services/recording_service.dart';
 import 'services/transcription_service.dart';
 
@@ -57,6 +59,15 @@ final locationServiceProvider = Provider<LocationService>((ref) {
   return LocationService();
 });
 
+final dailyInsightServiceProvider = Provider<DailyInsightService>((ref) {
+  return DailyInsightService();
+});
+
+final reminderNotificationServiceProvider =
+    Provider<ReminderNotificationService>((ref) {
+      return ReminderNotificationService();
+    });
+
 final themeModeControllerProvider =
     NotifierProvider<ThemeModeController, ThemeMode>(ThemeModeController.new);
 
@@ -91,6 +102,14 @@ final todayTranscriptProvider = StreamProvider<DailyTranscript>((ref) {
 
 final recentHitsProvider = StreamProvider<List<CatchphraseHit>>((ref) {
   return ref.watch(databaseProvider).watchRecentHits();
+});
+
+final todaySummaryProvider = StreamProvider<DailySummary?>((ref) {
+  return ref.watch(databaseProvider).watchTodaySummary();
+});
+
+final openRemindersProvider = StreamProvider<List<CueReminder>>((ref) {
+  return ref.watch(databaseProvider).watchOpenReminders();
 });
 
 final pendingCatchphrasePromptProvider =
@@ -136,10 +155,63 @@ class TranscriptController extends Notifier<void> {
   @override
   void build() {}
 
-  Future<void> saveToday(String text) {
-    return ref
+  Future<void> saveToday(String text) async {
+    await ref
         .read(databaseProvider)
         .replaceDailyTranscript(DateTime.now(), text);
+    await ref
+        .read(insightControllerProvider.notifier)
+        .refreshFromTranscript(text);
+  }
+}
+
+final insightControllerProvider = NotifierProvider<InsightController, void>(
+  InsightController.new,
+);
+
+class InsightController extends Notifier<void> {
+  @override
+  void build() {}
+
+  Future<void> refreshToday() async {
+    final transcript = await ref
+        .read(databaseProvider)
+        .getDailyTranscript(DateTime.now());
+    await refreshFromTranscript(transcript.text);
+  }
+
+  Future<void> refreshFromTranscript(String transcriptText) async {
+    final database = ref.read(databaseProvider);
+    final service = ref.read(dailyInsightServiceProvider);
+    final transcript = await database.getDailyTranscript(DateTime.now());
+
+    for (final candidate in service.extractReminderCandidates(transcriptText)) {
+      final reminder = await database.addReminderIfAbsent(
+        text: candidate.text,
+        sourceText: candidate.sourceText,
+        dueAt: candidate.dueAt,
+      );
+      if (reminder != null) {
+        await ref
+            .read(reminderNotificationServiceProvider)
+            .showReminder(reminder);
+      }
+    }
+
+    final hits = await database.getHitsForDay(DateTime.now());
+    final reminders = await database.getRemindersForDay(DateTime.now());
+    await database.upsertDailySummary(
+      service.buildSummary(
+        transcript: transcript,
+        hits: hits,
+        reminders: reminders,
+      ),
+    );
+  }
+
+  Future<void> completeReminder(int id) async {
+    await ref.read(databaseProvider).completeReminder(id);
+    await refreshToday();
   }
 }
 
@@ -342,6 +414,9 @@ class RecordingController extends Notifier<RecordingStatus> {
   Future<void> _persistTranscriptChunk(String text) async {
     final database = ref.read(databaseProvider);
     await database.appendTranscript(DateTime.now(), text);
+    await ref
+        .read(insightControllerProvider.notifier)
+        .refreshFromTranscript(text);
     await _detectCatchphrases(text);
   }
 
