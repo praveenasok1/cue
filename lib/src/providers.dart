@@ -283,6 +283,7 @@ class RecordingController extends Notifier<RecordingStatus> {
   bool _isStarting = false;
   bool _isRecovering = false;
   String _activeSource = 'Unknown';
+  final _recentCatchphraseReports = <String, DateTime>{};
 
   @override
   RecordingStatus build() {
@@ -605,7 +606,30 @@ class RecordingController extends Notifier<RecordingStatus> {
     final catchphrases = await db.getCatchphrases();
     if (catchphrases.isEmpty) return;
 
-    // GPS: fetch once for all hits in this detection pass.
+    _pruneRecentCatchphraseReports();
+
+    final detections = <_CatchphraseDetection>[];
+    for (final catchphrase in catchphrases) {
+      final expr = _catchphraseExpression(catchphrase.phrase);
+      final matches = expr.allMatches(normalized).toList(growable: false);
+      for (final match in matches) {
+        final signature = _detectionSignature(
+          catchphraseId: catchphrase.id,
+          sessionId: sessionId,
+          text: normalized,
+          start: match.start,
+          end: match.end,
+        );
+        if (_recentCatchphraseReports.containsKey(signature)) continue;
+        detections.add(
+          _CatchphraseDetection(catchphrase: catchphrase, signature: signature),
+        );
+      }
+    }
+
+    if (detections.isEmpty) return;
+
+    // GPS: fetch once only after confirmed hits.
     CueLocation? location;
     try {
       location = await ref.read(locationServiceProvider).currentLocation();
@@ -613,19 +637,13 @@ class RecordingController extends Notifier<RecordingStatus> {
       // Location is non-critical – log without it.
     }
 
-    if (!state.isRecording || state.isPaused) return;
-
     var reported = 0;
     String? lastLabel;
 
-    for (final catchphrase in catchphrases) {
-      final expr = RegExp(
-        '(^|[^A-Za-z0-9_])${RegExp.escape(catchphrase.phrase)}'
-        r'(?=$|[^A-Za-z0-9_])',
-        caseSensitive: false,
-      );
-      if (!expr.hasMatch(normalized)) continue;
+    if (!state.isRecording || state.isPaused) return;
 
+    for (final detection in detections) {
+      final catchphrase = detection.catchphrase;
       await db.logCatchphraseHit(
         catchphrase: catchphrase,
         context: normalized,
@@ -633,6 +651,7 @@ class RecordingController extends Notifier<RecordingStatus> {
         latitude: location?.latitude,
         longitude: location?.longitude,
       );
+      _recentCatchphraseReports[detection.signature] = DateTime.now();
       reported++;
       lastLabel = catchphrase.phrase;
 
@@ -658,6 +677,35 @@ class RecordingController extends Notifier<RecordingStatus> {
     }
   }
 
+  RegExp _catchphraseExpression(String phrase) {
+    final tokens = phrase
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .map(RegExp.escape)
+        .toList(growable: false);
+    final body = tokens.join(r'[^A-Za-z0-9_]+');
+    return RegExp(
+      '(^|[^A-Za-z0-9_])$body(?=\$|[^A-Za-z0-9_])',
+      caseSensitive: false,
+    );
+  }
+
+  String _detectionSignature({
+    required int catchphraseId,
+    required int sessionId,
+    required String text,
+    required int start,
+    required int end,
+  }) {
+    final stableText = text
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(RegExp(r'[^a-z0-9 ]+'), '')
+        .trim();
+    return '$catchphraseId|$sessionId|$start|$end|$stableText';
+  }
+
   Future<void> _cancelSubscriptions() async {
     await _amplitudeSubscription?.cancel();
     await _speechLevelSubscription?.cancel();
@@ -667,6 +715,13 @@ class RecordingController extends Notifier<RecordingStatus> {
     _speechLevelSubscription = null;
     _transcriptionSubscription = null;
     _transcriptionErrorSubscription = null;
+  }
+
+  void _pruneRecentCatchphraseReports() {
+    final cutoff = DateTime.now().subtract(const Duration(seconds: 45));
+    _recentCatchphraseReports.removeWhere((_, reportedAt) {
+      return reportedAt.isBefore(cutoff);
+    });
   }
 
   void _startPipelineHealthMonitor() {
@@ -780,4 +835,14 @@ class RecordingController extends Notifier<RecordingStatus> {
   bool _shouldStopForRoute(AudioRouteState route) {
     return route.definitiveDisconnect;
   }
+}
+
+class _CatchphraseDetection {
+  const _CatchphraseDetection({
+    required this.catchphrase,
+    required this.signature,
+  });
+
+  final Catchphrase catchphrase;
+  final String signature;
 }

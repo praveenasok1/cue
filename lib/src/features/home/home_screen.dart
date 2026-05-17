@@ -848,6 +848,9 @@ class _CatchphraseDetailSheet extends ConsumerWidget {
         future: allHitsFuture,
         builder: (context, snapshot) {
           final allHits = snapshot.data ?? stat.hits;
+          final dayCounts = _dayCounts(allHits);
+          final firstSeen = allHits.isEmpty ? null : allHits.last.spokenAt;
+          final lastSeen = allHits.isEmpty ? null : allHits.first.spokenAt;
           return ListView(
             controller: sc,
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
@@ -866,6 +869,58 @@ class _CatchphraseDetailSheet extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MetricChip(label: 'Today', value: stat.count.toString()),
+                  _MetricChip(
+                    label: 'All time',
+                    value: allHits.length.toString(),
+                  ),
+                  if (lastSeen != null)
+                    _MetricChip(
+                      label: 'Last',
+                      value: DateFormat.MMMd().add_jm().format(lastSeen),
+                    ),
+                  if (firstSeen != null)
+                    _MetricChip(
+                      label: 'First',
+                      value: DateFormat.MMMd().format(firstSeen),
+                    ),
+                ],
+              ),
+              if (dayCounts.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Daily breakdown',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                ...dayCounts.entries
+                    .take(7)
+                    .map(
+                      (entry) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(DateFormat.yMMMd().format(entry.key)),
+                            ),
+                            Text(
+                              '${entry.value}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+              ],
+              const SizedBox(height: 16),
               Text(
                 'Occurrence report',
                 style: Theme.of(
@@ -883,6 +938,52 @@ class _CatchphraseDetailSheet extends ConsumerWidget {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Map<DateTime, int> _dayCounts(List<CatchphraseHit> hits) {
+    final counts = <DateTime, int>{};
+    for (final hit in hits) {
+      final key = DateTime(
+        hit.spokenAt.year,
+        hit.spokenAt.month,
+        hit.spokenAt.day,
+      );
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return Map.fromEntries(
+      counts.entries.toList()..sort((a, b) => b.key.compareTo(a.key)),
+    );
+  }
+}
+
+class _MetricChip extends StatelessWidget {
+  const _MetricChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: CueColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w900)),
+        ],
       ),
     );
   }
