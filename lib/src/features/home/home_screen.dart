@@ -1,0 +1,827 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+
+import '../../data/models.dart';
+import '../../providers.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/live_waveform.dart';
+
+class HomeScreen extends ConsumerStatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  int? _shownPromptId;
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<AsyncValue<PendingCatchphrasePrompt?>>(
+      pendingCatchphrasePromptProvider,
+      (_, next) {
+        final prompt = next.valueOrNull;
+        if (prompt != null && prompt.hit.id != _shownPromptId) {
+          _shownPromptId = prompt.hit.id;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _showMoodPicker(context, prompt);
+          });
+        }
+      },
+    );
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'CUE',
+              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 3),
+            ),
+            Text(
+              'Capture. Understand. Evolve.',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_rounded),
+            onPressed: () => _showSettings(context),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: CueColors.primary,
+        foregroundColor: Colors.white,
+        onPressed: () => _showCatchphraseSheet(context, ref),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Catchphrase'),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
+          children: const [
+            _RecordingHero(),
+            SizedBox(height: 18),
+            _TranscriptPanel(),
+            SizedBox(height: 18),
+            _CatchphrasePanel(),
+            SizedBox(height: 18),
+            _RecentHitsPanel(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showMoodPicker(
+    BuildContext context,
+    PendingCatchphrasePrompt prompt,
+  ) async {
+    final mood = await showModalBottomSheet<CueMood>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _MoodPicker(prompt: prompt),
+    );
+    if (mood != null && mounted) {
+      await ref
+          .read(catchphraseControllerProvider.notifier)
+          .chooseMood(prompt.hit.id, mood);
+    }
+  }
+}
+
+class _RecordingHero extends ConsumerWidget {
+  const _RecordingHero();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = ref.watch(recordingControllerProvider);
+    final colors = Theme.of(context).colorScheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    color: status.isRecording
+                        ? CueColors.positive
+                        : colors.outline,
+                    shape: BoxShape.circle,
+                    boxShadow: status.isRecording
+                        ? [
+                            BoxShadow(
+                              color: CueColors.positive.withValues(alpha: 0.45),
+                              blurRadius: 18,
+                              spreadRadius: 4,
+                            ),
+                          ]
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    status.isRecording ? 'Recording live' : 'Standby',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+                Icon(
+                  status.earphonesConnected
+                      ? Icons.headphones_rounded
+                      : Icons.headset_off_rounded,
+                  color:
+                      status.earphonesConnected ? CueColors.primary : null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              status.statusMessage,
+              style: TextStyle(color: colors.onSurfaceVariant),
+            ),
+            const SizedBox(height: 20),
+            LiveWaveform(
+              amplitude: status.amplitude,
+              isRecording: status.isRecording,
+            ),
+            if (status.isRecording)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.stop_circle_rounded),
+                  label: const Text('Stop session'),
+                  onPressed: () => ref
+                      .read(recordingControllerProvider.notifier)
+                      .stopRecording(reason: 'Stopped by user'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TranscriptPanel extends ConsumerStatefulWidget {
+  const _TranscriptPanel();
+
+  @override
+  ConsumerState<_TranscriptPanel> createState() => _TranscriptPanelState();
+}
+
+class _TranscriptPanelState extends ConsumerState<_TranscriptPanel> {
+  final _transcriptController = TextEditingController();
+  final _searchController = TextEditingController();
+  final _focusNode = FocusNode();
+  bool _dirty = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _transcriptController.addListener(() {
+      if (_focusNode.hasFocus) {
+        _dirty = true;
+        setState(() {});
+      }
+    });
+    _searchController.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _transcriptController.dispose();
+    _searchController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final transcript = ref.watch(todayTranscriptProvider);
+    final catchphrases = ref.watch(catchphrasesProvider).valueOrNull ?? [];
+    final search = _searchController.text.trim();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SectionHeader(
+              title: 'Today\'s transcript',
+              subtitle: DateFormat.yMMMMEEEEd().format(DateTime.now()),
+              icon: Icons.subject_rounded,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search_rounded),
+                hintText: 'Search the full day transcript',
+              ),
+            ),
+            const SizedBox(height: 16),
+            transcript.when(
+              data: (dailyTranscript) {
+                if (!_focusNode.hasFocus && !_dirty) {
+                  _transcriptController.text = dailyTranscript.text;
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: _transcriptController,
+                      focusNode: _focusNode,
+                      minLines: 7,
+                      maxLines: 14,
+                      textInputAction: TextInputAction.newline,
+                      decoration: const InputDecoration(
+                        alignLabelWithHint: true,
+                        labelText: 'Edit transcript inline',
+                        hintText: 'CUE will append session transcripts here.',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Last saved ${DateFormat.jm().format(dailyTranscript.updatedAt)}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () async {
+                            await ref
+                                .read(transcriptControllerProvider.notifier)
+                                .saveToday(_transcriptController.text);
+                            _dirty = false;
+                            _focusNode.unfocus();
+                          },
+                          icon: const Icon(Icons.save_rounded),
+                          label: const Text('Save'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    _HighlightedTranscript(
+                      text: _transcriptController.text,
+                      search: search,
+                      catchphrases: catchphrases,
+                    ),
+                  ],
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (error, _) => Text('Could not load transcript: $error'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HighlightedTranscript extends StatelessWidget {
+  const _HighlightedTranscript({
+    required this.text,
+    required this.search,
+    required this.catchphrases,
+  });
+
+  final String text;
+  final String search;
+  final List<Catchphrase> catchphrases;
+
+  @override
+  Widget build(BuildContext context) {
+    final spans = _buildSpans(context);
+    final searchCount = search.isEmpty
+        ? 0
+        : RegExp(RegExp.escape(search), caseSensitive: false)
+            .allMatches(text)
+            .length;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Highlighted view',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const Spacer(),
+              if (search.isNotEmpty)
+                Text(
+                  '$searchCount match${searchCount == 1 ? '' : 'es'}',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SelectableText.rich(
+            TextSpan(
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    height: 1.5,
+                  ),
+              children: spans.isEmpty
+                  ? const [TextSpan(text: 'No transcript yet.')]
+                  : spans,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<TextSpan> _buildSpans(BuildContext context) {
+    if (text.isEmpty) return const [];
+    final matches = <_TextHighlight>[];
+    for (final catchphrase in catchphrases) {
+      final expression = RegExp(
+        RegExp.escape(catchphrase.phrase),
+        caseSensitive: false,
+      );
+      for (final match in expression.allMatches(text)) {
+        matches.add(_TextHighlight(
+          match.start,
+          match.end,
+          catchphrase.color.withValues(alpha: 0.35),
+        ));
+      }
+    }
+    if (search.isNotEmpty) {
+      final expression = RegExp(RegExp.escape(search), caseSensitive: false);
+      for (final match in expression.allMatches(text)) {
+        matches.add(_TextHighlight(
+          match.start,
+          match.end,
+          Colors.amber.withValues(alpha: 0.45),
+        ));
+      }
+    }
+
+    matches.sort((a, b) => a.start.compareTo(b.start));
+    final spans = <TextSpan>[];
+    var index = 0;
+    for (final match in matches) {
+      if (match.start < index) continue;
+      if (match.start > index) {
+        spans.add(TextSpan(text: text.substring(index, match.start)));
+      }
+      spans.add(TextSpan(
+        text: text.substring(match.start, match.end),
+        style: TextStyle(
+          backgroundColor: match.color,
+          fontWeight: FontWeight.w800,
+        ),
+      ));
+      index = match.end;
+    }
+    if (index < text.length) spans.add(TextSpan(text: text.substring(index)));
+    return spans;
+  }
+}
+
+class _TextHighlight {
+  const _TextHighlight(this.start, this.end, this.color);
+
+  final int start;
+  final int end;
+  final Color color;
+}
+
+class _CatchphrasePanel extends ConsumerWidget {
+  const _CatchphrasePanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final catchphrases = ref.watch(catchphrasesProvider);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SectionHeader(
+              title: 'Catchphrases',
+              subtitle: 'Two or more words, habit polarity, color, notes.',
+              icon: Icons.auto_awesome_rounded,
+            ),
+            const SizedBox(height: 12),
+            catchphrases.when(
+              data: (items) {
+                if (items.isEmpty) {
+                  return const Text(
+                    'Add a phrase like "drink water" or "skip workout".',
+                  );
+                }
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final item in items)
+                      InputChip(
+                        avatar: CircleAvatar(
+                          backgroundColor: item.color,
+                          child: Text(
+                            item.polarity.symbol,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                        label: Text(item.phrase),
+                        onDeleted: () => ref
+                            .read(catchphraseControllerProvider.notifier)
+                            .delete(item.id),
+                      ),
+                  ],
+                );
+              },
+              loading: () => const LinearProgressIndicator(),
+              error: (error, _) => Text('Could not load catchphrases: $error'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentHitsPanel extends ConsumerWidget {
+  const _RecentHitsPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hits = ref.watch(recentHitsProvider);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SectionHeader(
+              title: 'Habit log',
+              subtitle: 'Catchphrase time, mood, and location captures.',
+              icon: Icons.timeline_rounded,
+            ),
+            const SizedBox(height: 12),
+            hits.when(
+              data: (items) {
+                if (items.isEmpty) {
+                  return const Text('No catchphrase events logged yet.');
+                }
+                return Column(
+                  children: [
+                    for (final hit in items)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          hit.acknowledged
+                              ? Icons.check_circle_rounded
+                              : Icons.mood_rounded,
+                          color: hit.acknowledged
+                              ? CueColors.positive
+                              : CueColors.primary,
+                        ),
+                        title: Text(hit.phrase),
+                        subtitle: Text(_hitSubtitle(hit)),
+                      ),
+                  ],
+                );
+              },
+              loading: () => const LinearProgressIndicator(),
+              error: (error, _) => Text('Could not load habit log: $error'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _hitSubtitle(CatchphraseHit hit) {
+    final time = DateFormat.MMMd().add_jm().format(hit.spokenAt);
+    final mood = hit.mood == null ? 'Mood pending' : hit.mood!.label;
+    final location = hit.latitude == null || hit.longitude == null
+        ? 'No location'
+        : '${hit.latitude!.toStringAsFixed(4)}, '
+            '${hit.longitude!.toStringAsFixed(4)}';
+    return '$time - $mood - $location';
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: CueColors.primary.withValues(alpha: 0.11),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Icon(icon, color: CueColors.primary),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MoodPicker extends StatelessWidget {
+  const _MoodPicker({required this.prompt});
+
+  final PendingCatchphrasePrompt prompt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'How did you feel?',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'CUE heard "${prompt.catchphrase.phrase}" and logged this moment.',
+          ),
+          const SizedBox(height: 18),
+          GridView.count(
+            shrinkWrap: true,
+            crossAxisCount: 2,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: 3.4,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              for (final mood in CueMood.values)
+                OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(mood),
+                  child: Text('${mood.emoji} ${mood.label}'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _showSettings(BuildContext context) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => Consumer(
+      builder: (context, ref, _) {
+      final themeMode = ref.watch(themeModeControllerProvider);
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const _SectionHeader(
+              title: 'Settings',
+              subtitle: 'CUE starts in light mode by default.',
+              icon: Icons.settings_rounded,
+            ),
+            const SizedBox(height: 16),
+            SegmentedButton<ThemeMode>(
+              segments: const [
+                ButtonSegment(
+                  value: ThemeMode.light,
+                  label: Text('Light'),
+                  icon: Icon(Icons.light_mode_rounded),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.dark,
+                  label: Text('Dark'),
+                  icon: Icon(Icons.dark_mode_rounded),
+                ),
+              ],
+              selected: {themeMode},
+              onSelectionChanged: (selection) {
+                ref
+                    .read(themeModeControllerProvider.notifier)
+                    .setThemeMode(selection.single);
+              },
+            ),
+          ],
+        ),
+      );
+      },
+    ),
+  );
+}
+
+Future<void> _showCatchphraseSheet(BuildContext context, WidgetRef ref) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (context) => _CatchphraseForm(ref: ref),
+  );
+}
+
+class _CatchphraseForm extends StatefulWidget {
+  const _CatchphraseForm({required this.ref});
+
+  final WidgetRef ref;
+
+  @override
+  State<_CatchphraseForm> createState() => _CatchphraseFormState();
+}
+
+class _CatchphraseFormState extends State<_CatchphraseForm> {
+  static const _colors = [
+    Color(0xFFFFC857),
+    Color(0xFF7BDFF2),
+    Color(0xFFB2F7EF),
+    Color(0xFFFF8FAB),
+    Color(0xFFCDB4DB),
+    Color(0xFF90BE6D),
+  ];
+
+  final _phraseController = TextEditingController();
+  final _notesController = TextEditingController();
+  HabitPolarity _polarity = HabitPolarity.desired;
+  Color _color = _colors.first;
+  String? _error;
+
+  @override
+  void dispose() {
+    _phraseController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        22,
+        0,
+        22,
+        MediaQuery.of(context).viewInsets.bottom + 28,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SectionHeader(
+              title: 'New catchphrase',
+              subtitle: 'Minimum two words. CUE will listen for exact phrases.',
+              icon: Icons.add_reaction_rounded,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _phraseController,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Catchphrase',
+                hintText: 'for example: drink water',
+              ),
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<HabitPolarity>(
+              segments: const [
+                ButtonSegment(
+                  value: HabitPolarity.desired,
+                  label: Text('Desired +'),
+                  icon: Icon(Icons.trending_up_rounded),
+                ),
+                ButtonSegment(
+                  value: HabitPolarity.undesired,
+                  label: Text('Undesired -'),
+                  icon: Icon(Icons.trending_down_rounded),
+                ),
+              ],
+              selected: {_polarity},
+              onSelectionChanged: (selection) {
+                setState(() => _polarity = selection.single);
+              },
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              children: [
+                for (final color in _colors)
+                  ChoiceChip(
+                    selected: _color == color,
+                    label: const SizedBox(width: 24, height: 24),
+                    avatar: CircleAvatar(backgroundColor: color),
+                    onSelected: (_) => setState(() => _color = color),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notesController,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Optional notes',
+                hintText: 'Why this phrase matters',
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(_error!, style: const TextStyle(color: CueColors.negative)),
+            ],
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.check_rounded),
+                label: const Text('Save catchphrase'),
+                onPressed: _save,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    try {
+      await widget.ref.read(catchphraseControllerProvider.notifier).add(
+            phrase: _phraseController.text,
+            polarity: _polarity,
+            color: _color,
+            notes: _notesController.text,
+          );
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      setState(() => _error = error.toString());
+    }
+  }
+}

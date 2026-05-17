@@ -1,0 +1,11 @@
+{
+  "name": "CUE",
+  "short_name": "CUE",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#F8F9FC",
+  "theme_color": "#0066FF",
+  "description": "Earphone-triggered habit transcription journal.",
+  "orientation": "portrait-primary",
+  "prefer_related_applications": false
+}
