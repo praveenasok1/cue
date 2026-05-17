@@ -76,6 +76,7 @@ import UIKit
         self?.routeEventSink?(self?.fallbackRouteState() ?? [
           "earphonesConnected": false,
           "earphoneMicActive": false,
+          "earphoneMicAvailable": false,
           "routeName": "Device speaker",
           "inputName": "Phone microphone",
         ])
@@ -162,16 +163,16 @@ import UIKit
     let output = session.currentRoute.outputs.first(where: isEarphoneOutputPort)
     let activeInput = session.currentRoute.inputs.first(where: isEarphoneInputPort)
     let currentInput = session.currentRoute.inputs.first
-    // Fall back to checking available inputs before the recorder has activated
-    // the audio session. Recording is re-checked after start and stopped if the
-    // active route is not an earphone mic.
     let availableInput = session.availableInputs?.first(where: isEarphoneInputPort)
-    let input = activeInput ?? (currentInput == nil ? availableInput : nil)
+    // Available input is enough to start; active input is required to continue
+    // once the recorder has activated the audio session.
+    let input = activeInput ?? availableInput
     let name = output?.portName ?? input?.portName ?? "Device speaker"
-    let inputName = input?.portName ?? currentInput?.portName ?? "Phone microphone"
+    let inputName = activeInput?.portName ?? availableInput?.portName ?? currentInput?.portName ?? "Phone microphone"
     return [
       "earphonesConnected": output != nil || input != nil,
-      "earphoneMicActive": input != nil,
+      "earphoneMicActive": activeInput != nil,
+      "earphoneMicAvailable": input != nil,
       "routeName": name,
       "inputName": inputName,
     ]
@@ -181,6 +182,7 @@ import UIKit
     return [
       "earphonesConnected": false,
       "earphoneMicActive": false,
+      "earphoneMicAvailable": false,
       "routeName": "Device speaker",
       "inputName": "Phone microphone",
     ]

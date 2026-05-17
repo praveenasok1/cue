@@ -22,6 +22,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _insightRequested = false;
+  bool _permissionsRequested = false;
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +35,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ref
                 .read(insightControllerProvider.notifier)
                 .refreshToday()
+                .catchError((_) {}),
+          );
+        }
+      });
+    }
+    if (!_permissionsRequested) {
+      _permissionsRequested = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(
+            ref
+                .read(appPermissionServiceProvider)
+                .requestStartupPermissions()
                 .catchError((_) {}),
           );
         }
@@ -157,9 +171,11 @@ class _RecordingHero extends ConsumerWidget {
             Text(
               status.earphoneMicActive
                   ? 'Input locked to ${status.inputName}'
-                  : 'Recording is blocked until an earphone mic is active',
+                  : status.earphoneMicAvailable
+                  ? 'Earphone mic ready. CUE will activate it when recording starts.'
+                  : 'Recording is blocked until an earphone mic is available',
               style: TextStyle(
-                color: status.earphoneMicActive
+                color: status.earphoneMicActive || status.earphoneMicAvailable
                     ? CueColors.positive
                     : cs.onSurfaceVariant,
                 fontSize: 12,
@@ -226,7 +242,7 @@ class _RecordingHero extends ConsumerWidget {
                 child: FilledButton.icon(
                   icon: const Icon(Icons.mic_rounded),
                   label: const Text('Start session'),
-                  onPressed: status.earphoneMicActive
+                  onPressed: status.earphoneMicAvailable
                       ? () => ref
                             .read(recordingControllerProvider.notifier)
                             .startManualRecording()

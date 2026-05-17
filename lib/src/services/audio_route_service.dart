@@ -6,16 +6,21 @@ class AudioRouteState {
   const AudioRouteState({
     required this.earphonesConnected,
     required this.earphoneMicActive,
+    required this.earphoneMicAvailable,
     this.routeName = 'Unknown',
     this.inputName = 'Phone microphone',
   });
 
   final bool earphonesConnected;
   final bool earphoneMicActive;
+  final bool earphoneMicAvailable;
   final String routeName;
   final String inputName;
 
-  bool get canRecordWithEarphoneMic => earphonesConnected && earphoneMicActive;
+  bool get canStartWithEarphoneMic =>
+      earphonesConnected && earphoneMicAvailable;
+
+  bool get hasActiveEarphoneMic => earphonesConnected && earphoneMicActive;
 }
 
 class AudioRouteService {
@@ -92,6 +97,9 @@ class AudioRouteService {
     return AudioRouteState(
       earphonesConnected: map?['earphonesConnected'] == true,
       earphoneMicActive: map?['earphoneMicActive'] == true,
+      earphoneMicAvailable:
+          map?['earphoneMicAvailable'] == true ||
+          map?['earphoneMicActive'] == true,
       routeName: (map?['routeName'] as String?) ?? 'Unknown',
       inputName: (map?['inputName'] as String?) ?? 'Phone microphone',
     );
@@ -100,6 +108,7 @@ class AudioRouteService {
   bool _sameState(AudioRouteState a, AudioRouteState b) {
     return a.earphonesConnected == b.earphonesConnected &&
         a.earphoneMicActive == b.earphoneMicActive &&
+        a.earphoneMicAvailable == b.earphoneMicAvailable &&
         a.routeName == b.routeName &&
         a.inputName == b.inputName;
   }
@@ -108,6 +117,7 @@ class AudioRouteService {
     return const AudioRouteState(
       earphonesConnected: false,
       earphoneMicActive: false,
+      earphoneMicAvailable: false,
     );
   }
 }

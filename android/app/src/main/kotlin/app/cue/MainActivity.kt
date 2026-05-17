@@ -144,6 +144,7 @@ class MainActivity : FlutterActivity() {
         return mapOf(
             "earphonesConnected" to (outputDevice != null || inputDevice != null),
             "earphoneMicActive" to (inputDevice != null),
+            "earphoneMicAvailable" to (inputDevice != null),
             "routeName" to (outputDevice?.productName?.toString()
                 ?: inputDevice?.productName?.toString()
                 ?: "Device speaker"),

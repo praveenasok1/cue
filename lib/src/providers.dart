@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'data/cue_database.dart';
 import 'data/models.dart';
 import 'services/audio_route_service.dart';
+import 'services/app_permission_service.dart';
 import 'services/catchphrase_audio_service.dart';
 import 'services/daily_insight_service.dart';
 import 'services/foreground_recording_service.dart';
@@ -69,6 +70,10 @@ final reminderNotificationServiceProvider =
 
 final microsoftToDoServiceProvider = Provider<MicrosoftToDoService>(
   (_) => MicrosoftToDoService(),
+);
+
+final appPermissionServiceProvider = Provider<AppPermissionService>(
+  (_) => AppPermissionService(),
 );
 
 // ──────────────────────────────────────────────── theme ──────────────────────
@@ -296,22 +301,24 @@ class RecordingController extends Notifier<RecordingStatus> {
     state = state.copyWith(
       earphonesConnected: route.earphonesConnected,
       earphoneMicActive: route.earphoneMicActive,
+      earphoneMicAvailable: route.earphoneMicAvailable,
       inputName: route.inputName,
       statusMessage: _routeStatusMessage(route),
     );
-    if (route.canRecordWithEarphoneMic && !state.isRecording && !_isStarting) {
+    if (route.canStartWithEarphoneMic && !state.isRecording && !_isStarting) {
       await _startRecording(route.routeName);
-    } else if (!route.canRecordWithEarphoneMic && state.isRecording) {
+    } else if (!route.hasActiveEarphoneMic && state.isRecording) {
       await stopRecording(reason: 'Earphone mic unavailable');
     }
   }
 
   Future<void> startManualRecording() async {
     final route = await ref.read(audioRouteServiceProvider).initialState();
-    if (!route.canRecordWithEarphoneMic) {
+    if (!route.canStartWithEarphoneMic) {
       state = state.copyWith(
         earphonesConnected: route.earphonesConnected,
         earphoneMicActive: route.earphoneMicActive,
+        earphoneMicAvailable: route.earphoneMicAvailable,
         inputName: route.inputName,
         statusMessage: _routeStatusMessage(route),
       );
@@ -325,10 +332,11 @@ class RecordingController extends Notifier<RecordingStatus> {
     _isStarting = true;
     RecordingSession? session;
     try {
+      await ref.read(appPermissionServiceProvider).requestStartupPermissions();
       final route = await ref
           .read(audioRouteServiceProvider)
           .prepareEarphoneMic();
-      if (!route.canRecordWithEarphoneMic) {
+      if (!route.canStartWithEarphoneMic) {
         throw StateError(_routeStatusMessage(route));
       }
       await ref.read(foregroundRecordingServiceProvider).start();
@@ -399,6 +407,7 @@ class RecordingController extends Notifier<RecordingStatus> {
         isManualSession: manual,
         earphonesConnected: activeRoute.earphonesConnected,
         earphoneMicActive: activeRoute.earphoneMicActive,
+        earphoneMicAvailable: activeRoute.earphoneMicAvailable,
         inputName: activeRoute.inputName,
         catchphraseDetectionActive: true,
         catchphraseReportCount: 0,
@@ -646,10 +655,11 @@ class RecordingController extends Notifier<RecordingStatus> {
     state = state.copyWith(
       earphonesConnected: route.earphonesConnected,
       earphoneMicActive: route.earphoneMicActive,
+      earphoneMicAvailable: route.earphoneMicAvailable,
       inputName: route.inputName,
     );
 
-    if (!route.canRecordWithEarphoneMic) {
+    if (!route.hasActiveEarphoneMic) {
       await stopRecording(reason: 'Earphone mic unavailable');
       return;
     }
@@ -689,7 +699,7 @@ class RecordingController extends Notifier<RecordingStatus> {
         await _startRecording(resumeSource, manual: true);
       } else {
         final route = await ref.read(audioRouteServiceProvider).initialState();
-        if (route.canRecordWithEarphoneMic) {
+        if (route.canStartWithEarphoneMic) {
           await _startRecording(route.routeName);
         }
       }
@@ -714,8 +724,14 @@ class RecordingController extends Notifier<RecordingStatus> {
     if (!route.earphonesConnected) {
       return 'Waiting for earphones';
     }
+    if (!route.earphoneMicAvailable) {
+      return 'Earphones connected, but no earphone mic is available';
+    }
+    if (!route.earphoneMicActive && !state.isRecording) {
+      return 'Earphone mic ready';
+    }
     if (!route.earphoneMicActive) {
-      return 'Earphones connected, but earphone mic is not active';
+      return 'Earphone mic route is not active';
     }
     return 'Earphone mic: ${route.inputName}';
   }
