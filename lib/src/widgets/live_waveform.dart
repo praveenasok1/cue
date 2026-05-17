@@ -21,6 +21,7 @@ class LiveWaveform extends StatefulWidget {
 class _LiveWaveformState extends State<LiveWaveform>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  double _displayAmplitude = 0;
 
   @override
   void initState() {
@@ -39,13 +40,17 @@ class _LiveWaveformState extends State<LiveWaveform>
 
   @override
   Widget build(BuildContext context) {
+    final target = widget.isRecording ? widget.amplitude.clamp(0, 1) : 0.06;
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
+        _displayAmplitude =
+            (_displayAmplitude * 0.68) + (target.toDouble() * 0.32);
         return CustomPaint(
           painter: _WaveformPainter(
             phase: _controller.value,
-            amplitude: widget.isRecording ? widget.amplitude : 0.08,
+            amplitude: _displayAmplitude,
+            active: widget.isRecording,
             color: widget.isRecording
                 ? CueColors.primary
                 : Theme.of(context).colorScheme.outline,
@@ -61,11 +66,13 @@ class _WaveformPainter extends CustomPainter {
   const _WaveformPainter({
     required this.phase,
     required this.amplitude,
+    required this.active,
     required this.color,
   });
 
   final double phase;
   final double amplitude;
+  final bool active;
   final Color color;
 
   @override
@@ -80,12 +87,14 @@ class _WaveformPainter extends CustomPainter {
 
     for (var i = 0; i < bars; i++) {
       final x = (i + 0.5) * size.width / bars;
-      final wave = math.sin((i / bars * math.pi * 3.5) + phase * math.pi * 2);
+      final wave = active
+          ? math.sin((i / bars * math.pi * 4.5) + phase * math.pi * 2.8)
+          : math.sin(i / bars * math.pi * 2);
       final envelope = math.sin(i / bars * math.pi).abs();
       final height =
-          18 +
-          (size.height * 0.62 * envelope * amplitude) +
-          (wave.abs() * 46 * (amplitude + 0.12));
+          10 +
+          (size.height * 0.74 * envelope * amplitude) +
+          (wave.abs() * 58 * amplitude);
       final opacity = 0.22 + (envelope * 0.68);
       paint.color = color.withValues(alpha: opacity.clamp(0, 1).toDouble());
       canvas.drawLine(
@@ -100,6 +109,7 @@ class _WaveformPainter extends CustomPainter {
   bool shouldRepaint(covariant _WaveformPainter oldDelegate) {
     return oldDelegate.phase != phase ||
         oldDelegate.amplitude != amplitude ||
+        oldDelegate.active != active ||
         oldDelegate.color != color;
   }
 }

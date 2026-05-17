@@ -22,9 +22,10 @@ class RecordingService {
     return _recorder.onAmplitudeChanged(const Duration(milliseconds: 90)).map((
       amplitude,
     ) {
-      if (!amplitude.current.isFinite) return 0;
-      final linear = ((amplitude.current + 60) / 60).clamp(0, 1);
-      return math.pow(linear, 0.55).toDouble();
+      final db = math.max(amplitude.current, amplitude.max);
+      if (!db.isFinite || db <= -80) return 0;
+      final linear = ((db + 55) / 45).clamp(0, 1);
+      return math.pow(linear, 0.42).toDouble();
     });
   }
 
@@ -62,6 +63,10 @@ class RecordingService {
     await session.setActive(false);
     return path;
   }
+
+  Future<void> pause() => _recorder.pause();
+
+  Future<void> resume() => _recorder.resume();
 
   Future<void> dispose() => _recorder.dispose();
 }

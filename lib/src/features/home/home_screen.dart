@@ -114,7 +114,7 @@ class _RecordingHero extends ConsumerWidget {
                         ? CueColors.positive
                         : colors.outline,
                     shape: BoxShape.circle,
-                    boxShadow: status.isRecording
+                    boxShadow: status.isRecording && !status.isPaused
                         ? [
                             BoxShadow(
                               color: CueColors.positive.withValues(alpha: 0.45),
@@ -128,7 +128,11 @@ class _RecordingHero extends ConsumerWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    status.isRecording ? 'Recording live' : 'Standby',
+                    status.isPaused
+                        ? 'Recording paused'
+                        : status.isRecording
+                        ? 'Recording live'
+                        : 'Standby',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -150,7 +154,12 @@ class _RecordingHero extends ConsumerWidget {
             const SizedBox(height: 20),
             LiveWaveform(
               amplitude: status.amplitude,
-              isRecording: status.isRecording,
+              isRecording: status.isRecording && !status.isPaused,
+            ),
+            const SizedBox(height: 10),
+            _InputLevelMeter(
+              amplitude: status.amplitude,
+              active: status.isRecording && !status.isPaused,
             ),
             if (status.isRecording) ...[
               const SizedBox(height: 14),
@@ -163,19 +172,75 @@ class _RecordingHero extends ConsumerWidget {
               ),
             ],
             if (status.isRecording)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  icon: const Icon(Icons.stop_circle_rounded),
-                  label: const Text('Stop session'),
-                  onPressed: () => ref
-                      .read(recordingControllerProvider.notifier)
-                      .stopRecording(reason: 'Stopped by user'),
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    icon: Icon(
+                      status.isPaused
+                          ? Icons.play_circle_rounded
+                          : Icons.pause_circle_rounded,
+                    ),
+                    label: Text(status.isPaused ? 'Resume' : 'Pause'),
+                    onPressed: () {
+                      final controller = ref.read(
+                        recordingControllerProvider.notifier,
+                      );
+                      if (status.isPaused) {
+                        controller.resumeRecording();
+                      } else {
+                        controller.pauseRecording();
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton.icon(
+                    icon: const Icon(Icons.stop_circle_rounded),
+                    label: const Text('Stop'),
+                    onPressed: () => ref
+                        .read(recordingControllerProvider.notifier)
+                        .stopRecording(reason: 'Stopped by user'),
+                  ),
+                ],
               ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _InputLevelMeter extends StatelessWidget {
+  const _InputLevelMeter({required this.amplitude, required this.active});
+
+  final double amplitude;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = active ? amplitude.clamp(0, 1).toDouble() : 0.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            minHeight: 7,
+            value: value,
+            backgroundColor: Theme.of(
+              context,
+            ).colorScheme.surfaceContainerHighest,
+            color: CueColors.primary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          active ? 'Mic input ${(value * 100).round()}%' : 'Mic input paused',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -152,6 +152,7 @@ class RecordingController extends Notifier<RecordingStatus> {
   StreamSubscription<double>? _amplitudeSubscription;
   StreamSubscription<double>? _speechLevelSubscription;
   StreamSubscription<TranscriptionChunk>? _transcriptionSubscription;
+  Timer? _levelDecayTimer;
 
   @override
   RecordingStatus build() {
@@ -165,6 +166,7 @@ class RecordingController extends Notifier<RecordingStatus> {
       _amplitudeSubscription?.cancel();
       _speechLevelSubscription?.cancel();
       _transcriptionSubscription?.cancel();
+      _levelDecayTimer?.cancel();
     });
 
     return const RecordingStatus(isRecording: false, earphonesConnected: false);
@@ -198,7 +200,7 @@ class RecordingController extends Notifier<RecordingStatus> {
           .read(recordingServiceProvider)
           .amplitudeStream()
           .listen((amplitude) {
-            state = state.copyWith(amplitude: amplitude);
+            _setLiveAmplitude(amplitude);
           });
 
       _speechLevelSubscription?.cancel();
@@ -208,9 +210,7 @@ class RecordingController extends Notifier<RecordingStatus> {
           .listen((amplitude) {
             // Speech recognition sound levels are a reliable live fallback on
             // iOS while the recorder is writing the session file.
-            if (amplitude > state.amplitude * 0.75) {
-              state = state.copyWith(amplitude: amplitude);
-            }
+            _setLiveAmplitude(amplitude);
           });
 
       _transcriptionSubscription?.cancel();
@@ -230,15 +230,40 @@ class RecordingController extends Notifier<RecordingStatus> {
       state = state.copyWith(
         isRecording: true,
         session: session,
+        isPaused: false,
         statusMessage: 'Recording earphone session',
       );
+      _startLevelDecay();
     } catch (error) {
       await ref.read(foregroundRecordingServiceProvider).stop();
       state = state.copyWith(
         isRecording: false,
+        isPaused: false,
         statusMessage: error.toString(),
       );
     }
+  }
+
+  Future<void> pauseRecording() async {
+    if (!state.isRecording || state.isPaused) return;
+    await ref.read(recordingServiceProvider).pause();
+    await ref.read(transcriptionServiceProvider).pause();
+    state = state.copyWith(
+      isPaused: true,
+      amplitude: 0,
+      liveTranscript: '',
+      statusMessage: 'Recording paused',
+    );
+  }
+
+  Future<void> resumeRecording() async {
+    if (!state.isRecording || !state.isPaused) return;
+    await ref.read(recordingServiceProvider).resume();
+    await ref.read(transcriptionServiceProvider).resume();
+    state = state.copyWith(
+      isPaused: false,
+      statusMessage: 'Recording earphone session',
+    );
   }
 
   Future<void> stopRecording({String reason = 'Stopped'}) async {
@@ -249,6 +274,8 @@ class RecordingController extends Notifier<RecordingStatus> {
     _amplitudeSubscription = null;
     _speechLevelSubscription = null;
     _transcriptionSubscription = null;
+    _levelDecayTimer?.cancel();
+    _levelDecayTimer = null;
 
     await ref.read(transcriptionServiceProvider).stop();
     await ref.read(recordingServiceProvider).stop();
@@ -259,11 +286,31 @@ class RecordingController extends Notifier<RecordingStatus> {
 
     state = state.copyWith(
       isRecording: false,
+      isPaused: false,
       clearSession: true,
       amplitude: 0,
       liveTranscript: '',
       statusMessage: reason,
     );
+  }
+
+  void _setLiveAmplitude(double amplitude) {
+    if (!state.isRecording || state.isPaused) return;
+    final boosted = (amplitude * 1.35).clamp(0, 1).toDouble();
+    final next = boosted > state.amplitude
+        ? boosted
+        : (state.amplitude * 0.72 + boosted * 0.28).clamp(0, 1).toDouble();
+    state = state.copyWith(amplitude: next);
+  }
+
+  void _startLevelDecay() {
+    _levelDecayTimer?.cancel();
+    _levelDecayTimer = Timer.periodic(const Duration(milliseconds: 120), (_) {
+      if (!state.isRecording || state.isPaused || state.amplitude <= 0.02) {
+        return;
+      }
+      state = state.copyWith(amplitude: state.amplitude * 0.86);
+    });
   }
 
   Future<void> _persistTranscriptChunk(String text) async {

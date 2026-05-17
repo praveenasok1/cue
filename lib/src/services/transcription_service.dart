@@ -65,6 +65,10 @@ class TranscriptionService {
     await _speechToText.stop();
   }
 
+  Future<void> pause() => stop();
+
+  Future<void> resume() => start();
+
   Future<void> dispose() async {
     _shouldListen = false;
     await _speechToText.cancel();
