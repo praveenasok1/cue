@@ -11,68 +11,73 @@ import 'services/catchphrase_audio_service.dart';
 import 'services/daily_insight_service.dart';
 import 'services/foreground_recording_service.dart';
 import 'services/location_service.dart';
+import 'services/microsoft_todo_service.dart';
 import 'services/reminder_notification_service.dart';
 import 'services/recording_service.dart';
 import 'services/transcription_service.dart';
 
+// ──────────────────────────────────────────────── singleton services ─────────
+
 final databaseProvider = Provider<CueDatabase>((ref) {
-  final database = CueDatabase();
-  ref.onDispose(database.close);
-  return database;
+  final db = CueDatabase();
+  ref.onDispose(db.close);
+  return db;
 });
 
-final audioRouteServiceProvider = Provider<AudioRouteService>((ref) {
-  return AudioRouteService();
-});
+final audioRouteServiceProvider = Provider<AudioRouteService>(
+  (_) => AudioRouteService(),
+);
 
 final audioRouteProvider = StreamProvider<AudioRouteState>((ref) {
   return ref.watch(audioRouteServiceProvider).routeChanges();
 });
 
 final recordingServiceProvider = Provider<RecordingService>((ref) {
-  final service = RecordingService();
-  ref.onDispose(service.dispose);
-  return service;
+  final s = RecordingService();
+  ref.onDispose(s.dispose);
+  return s;
 });
 
 final catchphraseAudioServiceProvider = Provider<CatchphraseAudioService>((
   ref,
 ) {
-  final service = CatchphraseAudioService();
-  ref.onDispose(service.dispose);
-  return service;
+  final s = CatchphraseAudioService();
+  ref.onDispose(s.dispose);
+  return s;
 });
 
 final transcriptionServiceProvider = Provider<TranscriptionService>((ref) {
-  final service = TranscriptionService();
-  ref.onDispose(service.dispose);
-  return service;
+  final s = TranscriptionService();
+  ref.onDispose(s.dispose);
+  return s;
 });
 
 final foregroundRecordingServiceProvider = Provider<ForegroundRecordingService>(
-  (ref) {
-    return ForegroundRecordingService();
-  },
+  (_) => ForegroundRecordingService(),
 );
 
-final locationServiceProvider = Provider<LocationService>((ref) {
-  return LocationService();
-});
+final locationServiceProvider = Provider<LocationService>(
+  (_) => LocationService(),
+);
 
-final dailyInsightServiceProvider = Provider<DailyInsightService>((ref) {
-  return DailyInsightService();
-});
+final dailyInsightServiceProvider = Provider<DailyInsightService>(
+  (_) => DailyInsightService(),
+);
 
 final reminderNotificationServiceProvider =
-    Provider<ReminderNotificationService>((ref) {
-      return ReminderNotificationService();
-    });
+    Provider<ReminderNotificationService>((_) => ReminderNotificationService());
+
+final microsoftToDoServiceProvider = Provider<MicrosoftToDoService>(
+  (_) => MicrosoftToDoService(),
+);
+
+// ──────────────────────────────────────────────── theme ──────────────────────
 
 final themeModeControllerProvider =
     NotifierProvider<ThemeModeController, ThemeMode>(ThemeModeController.new);
 
 class ThemeModeController extends Notifier<ThemeMode> {
-  static const _themeModeKey = 'cue.themeMode';
+  static const _key = 'cue.themeMode';
   final _prefs = SharedPreferencesAsync();
 
   @override
@@ -83,14 +88,16 @@ class ThemeModeController extends Notifier<ThemeMode> {
 
   Future<void> setThemeMode(ThemeMode mode) async {
     state = mode;
-    await _prefs.setString(_themeModeKey, mode.name);
+    await _prefs.setString(_key, mode.name);
   }
 
   Future<void> _load() async {
-    final value = await _prefs.getString(_themeModeKey);
-    state = value == ThemeMode.dark.name ? ThemeMode.dark : ThemeMode.light;
+    final v = await _prefs.getString(_key);
+    state = v == ThemeMode.dark.name ? ThemeMode.dark : ThemeMode.light;
   }
 }
+
+// ──────────────────────────────────────────────── DB streams ─────────────────
 
 final catchphrasesProvider = StreamProvider<List<Catchphrase>>((ref) {
   return ref.watch(databaseProvider).watchCatchphrases();
@@ -100,8 +107,10 @@ final todayTranscriptProvider = StreamProvider<DailyTranscript>((ref) {
   return ref.watch(databaseProvider).watchTodayTranscript();
 });
 
-final recentHitsProvider = StreamProvider<List<CatchphraseHit>>((ref) {
-  return ref.watch(databaseProvider).watchRecentHits();
+final todayCatchphraseStatsProvider = StreamProvider<List<CatchphraseStat>>((
+  ref,
+) {
+  return ref.watch(databaseProvider).watchTodayCatchphraseStats();
 });
 
 final todaySummaryProvider = StreamProvider<DailySummary?>((ref) {
@@ -112,10 +121,7 @@ final openRemindersProvider = StreamProvider<List<CueReminder>>((ref) {
   return ref.watch(databaseProvider).watchOpenReminders();
 });
 
-final pendingCatchphrasePromptProvider =
-    StreamProvider<PendingCatchphrasePrompt?>((ref) {
-      return ref.watch(databaseProvider).watchPendingPrompt();
-    });
+// ──────────────────────────────────────────────── catchphrase CRUD ───────────
 
 final catchphraseControllerProvider =
     NotifierProvider<CatchphraseController, void>(CatchphraseController.new);
@@ -128,25 +134,28 @@ class CatchphraseController extends Notifier<void> {
     required String phrase,
     required Color color,
     required String audioPath,
+    CatchphraseTag tag = CatchphraseTag.countOnly,
   }) {
     return ref
         .read(databaseProvider)
         .addCatchphrase(
           phrase: phrase,
-          polarity: HabitPolarity.desired,
           color: color,
           audioPath: audioPath,
+          tag: tag,
         );
+  }
+
+  Future<void> updateTag(int id, CatchphraseTag tag) {
+    return ref.read(databaseProvider).updateCatchphraseTag(id, tag);
   }
 
   Future<void> delete(int id) {
     return ref.read(databaseProvider).deleteCatchphrase(id);
   }
-
-  Future<void> chooseMood(int hitId, CueMood mood) {
-    return ref.read(databaseProvider).setHitMood(hitId, mood);
-  }
 }
+
+// ──────────────────────────────────────────────── transcript ──────────────────
 
 final transcriptControllerProvider =
     NotifierProvider<TranscriptController, void>(TranscriptController.new);
@@ -159,11 +168,16 @@ class TranscriptController extends Notifier<void> {
     await ref
         .read(databaseProvider)
         .replaceDailyTranscript(DateTime.now(), text);
-    await ref
-        .read(insightControllerProvider.notifier)
-        .refreshFromTranscript(text);
+    unawaited(
+      ref
+          .read(insightControllerProvider.notifier)
+          .refreshToday()
+          .catchError((_) {}),
+    );
   }
 }
+
+// ──────────────────────────────────────────────── daily insight ───────────────
 
 final insightControllerProvider = NotifierProvider<InsightController, void>(
   InsightController.new,
@@ -174,46 +188,72 @@ class InsightController extends Notifier<void> {
   void build() {}
 
   Future<void> refreshToday() async {
-    final transcript = await ref
-        .read(databaseProvider)
-        .getDailyTranscript(DateTime.now());
-    await refreshFromTranscript(transcript.text);
+    try {
+      final transcript = await ref
+          .read(databaseProvider)
+          .getDailyTranscript(DateTime.now());
+      await refreshFromTranscript(transcript.text);
+    } on Exception {
+      // Summary is best-effort.
+    }
   }
 
-  Future<void> refreshFromTranscript(String transcriptText) async {
-    final database = ref.read(databaseProvider);
-    final service = ref.read(dailyInsightServiceProvider);
-    final transcript = await database.getDailyTranscript(DateTime.now());
+  Future<void> refreshFromTranscript(String text) async {
+    try {
+      final db = ref.read(databaseProvider);
+      final service = ref.read(dailyInsightServiceProvider);
+      final transcript = await db.getDailyTranscript(DateTime.now());
+      final notificationSvc = ref.read(reminderNotificationServiceProvider);
+      final msTodo = ref.read(microsoftToDoServiceProvider);
 
-    for (final candidate in service.extractReminderCandidates(transcriptText)) {
-      final reminder = await database.addReminderIfAbsent(
-        text: candidate.text,
-        sourceText: candidate.sourceText,
-        dueAt: candidate.dueAt,
-      );
-      if (reminder != null) {
-        await ref
-            .read(reminderNotificationServiceProvider)
-            .showReminder(reminder);
+      for (final candidate in service.extractReminderCandidates(text)) {
+        final reminder = await db.addReminderIfAbsent(
+          text: candidate.text,
+          sourceText: candidate.sourceText,
+          dueAt: candidate.dueAt,
+        );
+        if (reminder != null) {
+          try {
+            await notificationSvc.showReminder(reminder);
+          } on Exception {
+            /* ignore */
+          }
+          // Push to Microsoft To-Do if configured.
+          try {
+            final todoId = await msTodo.addTask(
+              title: reminder.text,
+              dueAt: reminder.dueAt,
+            );
+            if (todoId != null) {
+              await db.setReminderMicrosoftToDoId(reminder.id, todoId);
+            }
+          } on Exception {
+            /* ignore */
+          }
+        }
       }
-    }
 
-    final hits = await database.getHitsForDay(DateTime.now());
-    final reminders = await database.getRemindersForDay(DateTime.now());
-    await database.upsertDailySummary(
-      service.buildSummary(
-        transcript: transcript,
-        hits: hits,
-        reminders: reminders,
-      ),
-    );
+      final hits = await db.getHitsForDay(DateTime.now());
+      final reminders = await db.getRemindersForDay(DateTime.now());
+      await db.upsertDailySummary(
+        service.buildSummary(
+          transcript: transcript,
+          hits: hits,
+          reminders: reminders,
+        ),
+      );
+    } on Exception {
+      /* best-effort */
+    }
   }
 
   Future<void> completeReminder(int id) async {
     await ref.read(databaseProvider).completeReminder(id);
-    await refreshToday();
+    unawaited(refreshToday().catchError((_) {}));
   }
 }
+
+// ──────────────────────────────────────────────── recording ───────────────────
 
 final recordingControllerProvider =
     NotifierProvider<RecordingController, RecordingStatus>(
@@ -221,22 +261,18 @@ final recordingControllerProvider =
     );
 
 class RecordingController extends Notifier<RecordingStatus> {
-  static const _catchphraseCooldown = Duration(seconds: 45);
-
   StreamSubscription<double>? _amplitudeSubscription;
   StreamSubscription<double>? _speechLevelSubscription;
   StreamSubscription<TranscriptionChunk>? _transcriptionSubscription;
   StreamSubscription<String>? _transcriptionErrorSubscription;
   Timer? _levelDecayTimer;
-  final Map<int, DateTime> _lastCatchphraseReports = {};
+  DateTime _lastAmplitudeUpdate = DateTime.fromMillisecondsSinceEpoch(0);
   bool _isStarting = false;
 
   @override
   RecordingStatus build() {
     ref.listen<AsyncValue<AudioRouteState>>(audioRouteProvider, (_, next) {
-      next.whenData((route) {
-        unawaited(_handleEarphoneState(route));
-      });
+      next.whenData((route) => unawaited(_handleEarphoneState(route)));
     }, fireImmediately: true);
 
     ref.onDispose(() {
@@ -254,22 +290,20 @@ class RecordingController extends Notifier<RecordingStatus> {
     state = state.copyWith(
       earphonesConnected: route.earphonesConnected,
       statusMessage: route.earphonesConnected
-          ? 'Earphones connected: ${route.routeName}'
+          ? 'Earphones: ${route.routeName}'
           : 'Waiting for earphones',
     );
-
     if (route.earphonesConnected && !state.isRecording && !_isStarting) {
       await _startRecording(route.routeName);
     } else if (!route.earphonesConnected &&
         state.isRecording &&
         !state.isManualSession) {
-      await stopRecording(reason: 'Earphones disconnected');
+      await stopRecording(reason: 'Earphones removed');
     }
   }
 
-  Future<void> startManualRecording() {
-    return _startRecording('Manual session', manual: true);
-  }
+  Future<void> startManualRecording() =>
+      _startRecording('Manual session', manual: true);
 
   Future<void> _startRecording(String source, {bool manual = false}) async {
     if (_isStarting || state.isRecording) return;
@@ -286,19 +320,13 @@ class RecordingController extends Notifier<RecordingStatus> {
       _amplitudeSubscription = ref
           .read(recordingServiceProvider)
           .amplitudeStream()
-          .listen((amplitude) {
-            _setLiveAmplitude(amplitude);
-          });
+          .listen(_setLiveAmplitude);
 
       _speechLevelSubscription?.cancel();
       _speechLevelSubscription = ref
           .read(transcriptionServiceProvider)
           .soundLevels
-          .listen((amplitude) {
-            // Speech recognition sound levels are a reliable live fallback on
-            // iOS while the recorder is writing the session file.
-            _setLiveAmplitude(amplitude);
-          });
+          .listen(_setLiveAmplitude);
 
       _transcriptionSubscription?.cancel();
       _transcriptionSubscription = ref
@@ -306,24 +334,34 @@ class RecordingController extends Notifier<RecordingStatus> {
           .chunks
           .listen((chunk) {
             if (chunk.isFinal) {
+              state = state.copyWith(liveTranscript: '');
               unawaited(
-                _persistTranscriptChunk(chunk.text).catchError((Object error) {
-                  state = state.copyWith(statusMessage: error.toString());
+                _persistChunk(chunk.text, session?.id ?? 0).catchError((
+                  Object e,
+                ) {
+                  state = state.copyWith(statusMessage: e.toString());
                 }),
               );
-              state = state.copyWith(liveTranscript: '');
             } else {
               state = state.copyWith(liveTranscript: chunk.text);
-              unawaited(_detectCatchphrases(chunk.text).catchError((_) {}));
+              // Scan partial results for catchphrases without waiting.
+              unawaited(
+                _detectCatchphrases(
+                  chunk.text,
+                  session?.id ?? 0,
+                ).catchError((_) {}),
+              );
             }
           });
+
       _transcriptionErrorSubscription?.cancel();
       _transcriptionErrorSubscription = ref
           .read(transcriptionServiceProvider)
           .errors
-          .listen((error) {
-            state = state.copyWith(statusMessage: 'Transcription: $error');
-          });
+          .listen(
+            (error) => state = state.copyWith(statusMessage: 'STT: $error'),
+          );
+
       await ref.read(transcriptionServiceProvider).start();
 
       state = state.copyWith(
@@ -340,16 +378,7 @@ class RecordingController extends Notifier<RecordingStatus> {
       );
       _startLevelDecay();
     } catch (error) {
-      await _amplitudeSubscription?.cancel();
-      await _speechLevelSubscription?.cancel();
-      await _transcriptionSubscription?.cancel();
-      await _transcriptionErrorSubscription?.cancel();
-      _amplitudeSubscription = null;
-      _speechLevelSubscription = null;
-      _transcriptionSubscription = null;
-      _transcriptionErrorSubscription = null;
-      _levelDecayTimer?.cancel();
-      _levelDecayTimer = null;
+      await _cancelSubscriptions();
       await ref.read(transcriptionServiceProvider).stop().catchError((_) {});
       await ref.read(recordingServiceProvider).stop().catchError((_) => null);
       if (session != null) {
@@ -396,14 +425,7 @@ class RecordingController extends Notifier<RecordingStatus> {
 
   Future<void> stopRecording({String reason = 'Stopped'}) async {
     final activeSession = state.session;
-    await _amplitudeSubscription?.cancel();
-    await _speechLevelSubscription?.cancel();
-    await _transcriptionSubscription?.cancel();
-    await _transcriptionErrorSubscription?.cancel();
-    _amplitudeSubscription = null;
-    _speechLevelSubscription = null;
-    _transcriptionSubscription = null;
-    _transcriptionErrorSubscription = null;
+    await _cancelSubscriptions();
     _levelDecayTimer?.cancel();
     _levelDecayTimer = null;
 
@@ -425,22 +447,27 @@ class RecordingController extends Notifier<RecordingStatus> {
       clearLastCatchphraseLabel: true,
       statusMessage: reason,
     );
-    _lastCatchphraseReports.clear();
+
+    // Trigger end-of-session summary.
+    unawaited(
+      ref
+          .read(insightControllerProvider.notifier)
+          .refreshToday()
+          .catchError((_) {}),
+    );
   }
 
-  DateTime _lastAmplitudeUpdate = DateTime.fromMillisecondsSinceEpoch(0);
+  // ── Amplitude / waveform ───────────────────────────────────────────────────
 
   void _setLiveAmplitude(double raw) {
     if (!state.isRecording || state.isPaused) return;
     final incoming = raw.clamp(0.0, 1.0);
-    // Instant attack: new peak always wins immediately.
-    // Slow release: blend down gently when new value is lower.
     final current = state.amplitude;
+    // Instant attack, slow release.
     final next = incoming >= current
         ? incoming
-        : (current * 0.80 + incoming * 0.20).clamp(0, 1).toDouble();
-    // Only update state when change is visible (>0.5%), avoids unnecessary rebuilds.
-    if ((next - current).abs() > 0.005) {
+        : (current * 0.82 + incoming * 0.18).clamp(0, 1).toDouble();
+    if ((next - current).abs() > 0.004) {
       _lastAmplitudeUpdate = DateTime.now();
       state = state.copyWith(amplitude: next);
     }
@@ -448,75 +475,105 @@ class RecordingController extends Notifier<RecordingStatus> {
 
   void _startLevelDecay() {
     _levelDecayTimer?.cancel();
-    // Decay every 80 ms. Only decays when no fresh amplitude arrived in 150 ms.
-    _levelDecayTimer = Timer.periodic(const Duration(milliseconds: 80), (_) {
+    _levelDecayTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!state.isRecording || state.isPaused || state.amplitude <= 0.01) {
         return;
       }
       final stale =
-          DateTime.now().difference(_lastAmplitudeUpdate).inMilliseconds > 150;
+          DateTime.now().difference(_lastAmplitudeUpdate).inMilliseconds > 180;
       if (stale) {
-        state = state.copyWith(amplitude: (state.amplitude * 0.88).clamp(0, 1));
+        state = state.copyWith(amplitude: (state.amplitude * 0.90).clamp(0, 1));
       }
     });
   }
 
-  Future<void> _persistTranscriptChunk(String text) async {
-    final database = ref.read(databaseProvider);
-    await database.appendTranscript(DateTime.now(), text);
+  // ── Transcript persistence ────────────────────────────────────────────────
+
+  Future<void> _persistChunk(String text, int sessionId) async {
+    final db = ref.read(databaseProvider);
+    await db.appendTranscript(DateTime.now(), text);
+    await _detectCatchphrases(text, sessionId);
     try {
       await ref
           .read(insightControllerProvider.notifier)
           .refreshFromTranscript(text);
     } on Exception {
-      // Insight generation is derived from the transcript and can be retried.
+      /* best-effort */
     }
-    await _detectCatchphrases(text);
   }
 
-  Future<void> _detectCatchphrases(String text) async {
-    if (!state.isRecording || state.isPaused) return;
-    final normalizedText = text.trim();
-    if (normalizedText.isEmpty) return;
+  // ── Catchphrase detection – no cooldown, every occurrence logged ───────────
 
-    final database = ref.read(databaseProvider);
-    final catchphrases = await database.getCatchphrases();
+  Future<void> _detectCatchphrases(String text, int sessionId) async {
+    if (!state.isRecording || state.isPaused) return;
+    final normalized = text.trim();
+    if (normalized.isEmpty) return;
+
+    final db = ref.read(databaseProvider);
+    final catchphrases = await db.getCatchphrases();
     if (catchphrases.isEmpty) return;
 
-    final now = DateTime.now();
-    final matches = <Catchphrase>[];
+    // GPS: fetch once for all hits in this detection pass.
+    CueLocation? location;
+    try {
+      location = await ref.read(locationServiceProvider).currentLocation();
+    } on Exception {
+      // Location is non-critical – log without it.
+    }
+
+    if (!state.isRecording || state.isPaused) return;
+
+    var reported = 0;
+    String? lastLabel;
+
     for (final catchphrase in catchphrases) {
-      final expression = RegExp(
+      final expr = RegExp(
         '(^|[^A-Za-z0-9_])${RegExp.escape(catchphrase.phrase)}'
         r'(?=$|[^A-Za-z0-9_])',
         caseSensitive: false,
       );
-      final lastReport = _lastCatchphraseReports[catchphrase.id];
-      final recentlyReported =
-          lastReport != null &&
-          now.difference(lastReport) < _catchphraseCooldown;
-      if (!recentlyReported && expression.hasMatch(normalizedText)) {
-        matches.add(catchphrase);
-      }
-    }
-    if (matches.isEmpty) return;
+      if (!expr.hasMatch(normalized)) continue;
 
-    final location = await ref.read(locationServiceProvider).currentLocation();
-    if (!state.isRecording || state.isPaused) return;
-    for (final catchphrase in matches) {
-      await database.logCatchphraseHit(
+      await db.logCatchphraseHit(
         catchphrase: catchphrase,
-        context: normalizedText,
+        context: normalized,
+        sessionId: sessionId,
         latitude: location?.latitude,
         longitude: location?.longitude,
       );
-      _lastCatchphraseReports[catchphrase.id] = DateTime.now();
+      reported++;
+      lastLabel = catchphrase.phrase;
+
+      // Tag-specific side-effects.
+      if (catchphrase.tag == CatchphraseTag.reminder) {
+        try {
+          await ref
+              .read(insightControllerProvider.notifier)
+              .refreshFromTranscript(normalized);
+        } on Exception {
+          /* ignore */
+        }
+      }
+    }
+
+    if (reported > 0) {
       state = state.copyWith(
         catchphraseDetectionActive: true,
-        catchphraseReportCount: state.catchphraseReportCount + 1,
-        lastCatchphraseLabel: catchphrase.phrase,
-        statusMessage: 'Catchphrase reported: ${catchphrase.phrase}',
+        catchphraseReportCount: state.catchphraseReportCount + reported,
+        lastCatchphraseLabel: lastLabel,
+        statusMessage: 'Catchphrase: $lastLabel',
       );
     }
+  }
+
+  Future<void> _cancelSubscriptions() async {
+    await _amplitudeSubscription?.cancel();
+    await _speechLevelSubscription?.cancel();
+    await _transcriptionSubscription?.cancel();
+    await _transcriptionErrorSubscription?.cancel();
+    _amplitudeSubscription = null;
+    _speechLevelSubscription = null;
+    _transcriptionSubscription = null;
+    _transcriptionErrorSubscription = null;
   }
 }

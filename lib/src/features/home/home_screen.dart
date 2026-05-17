@@ -1,13 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/models.dart';
 import '../../providers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/live_waveform.dart';
+
+// ═══════════════════════════════════════════════ Root scaffold ════════════════
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -17,25 +21,13 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  int? _shownPromptId;
-  bool _requestedInsights = false;
+  bool _insightRequested = false;
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<AsyncValue<PendingCatchphrasePrompt?>>(
-      pendingCatchphrasePromptProvider,
-      (_, next) {
-        final prompt = next.value;
-        if (prompt != null && prompt.hit.id != _shownPromptId) {
-          _shownPromptId = prompt.hit.id;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _showMoodPicker(context, prompt);
-          });
-        }
-      },
-    );
-    if (!_requestedInsights) {
-      _requestedInsights = true;
+    // Trigger first summary load after widgets settle.
+    if (!_insightRequested) {
+      _insightRequested = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           unawaited(
@@ -58,8 +50,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 3),
             ),
             Text(
-              'Capture. Understand. Evolve.',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              'Capture · Understand · Evolve',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -73,41 +65,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
           children: const [
             _RecordingHero(),
             SizedBox(height: 18),
             _TranscriptPanel(),
             SizedBox(height: 18),
-            _DailySummaryPanel(),
+            _CatchphraseStatsPanel(),
             SizedBox(height: 18),
             _RemindersPanel(),
             SizedBox(height: 18),
-            _RecentHitsPanel(),
+            _DailySummaryPanel(),
           ],
         ),
       ),
     );
   }
-
-  Future<void> _showMoodPicker(
-    BuildContext context,
-    PendingCatchphrasePrompt prompt,
-  ) async {
-    final mood = await showModalBottomSheet<CueMood>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => _MoodPicker(prompt: prompt),
-    );
-    if (mood != null && mounted) {
-      await ref
-          .read(catchphraseControllerProvider.notifier)
-          .chooseMood(prompt.hit.id, mood);
-    } else if (mounted && _shownPromptId == prompt.hit.id) {
-      _shownPromptId = null;
-    }
-  }
 }
+
+// ═══════════════════════════════════════════════ Recording hero ═══════════════
 
 class _RecordingHero extends ConsumerWidget {
   const _RecordingHero();
@@ -115,31 +91,32 @@ class _RecordingHero extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(recordingControllerProvider);
-    final colors = Theme.of(context).colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(22),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ─── Header row ─────────────────────────────────────────────────
             Row(
               children: [
                 AnimatedContainer(
-                  duration: const Duration(milliseconds: 250),
-                  width: 14,
-                  height: 14,
+                  duration: const Duration(milliseconds: 280),
+                  width: 13,
+                  height: 13,
                   decoration: BoxDecoration(
-                    color: status.isRecording
+                    color: status.isRecording && !status.isPaused
                         ? CueColors.positive
-                        : colors.outline,
+                        : cs.outline,
                     shape: BoxShape.circle,
                     boxShadow: status.isRecording && !status.isPaused
                         ? [
                             BoxShadow(
-                              color: CueColors.positive.withValues(alpha: 0.45),
-                              blurRadius: 18,
-                              spreadRadius: 4,
+                              color: CueColors.positive.withValues(alpha: 0.4),
+                              blurRadius: 14,
+                              spreadRadius: 3,
                             ),
                           ]
                         : null,
@@ -149,7 +126,7 @@ class _RecordingHero extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     status.isPaused
-                        ? 'Recording paused'
+                        ? 'Paused'
                         : status.isRecording
                         ? 'Recording live'
                         : 'Standby',
@@ -162,38 +139,44 @@ class _RecordingHero extends ConsumerWidget {
                   status.earphonesConnected
                       ? Icons.headphones_rounded
                       : Icons.headset_off_rounded,
-                  color: status.earphonesConnected ? CueColors.primary : null,
+                  color: status.earphonesConnected
+                      ? CueColors.primary
+                      : cs.outlineVariant,
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+
+            const SizedBox(height: 6),
             Text(
               status.statusMessage,
-              style: TextStyle(color: colors.onSurfaceVariant),
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
             ),
-            const SizedBox(height: 20),
+
+            // ─── Waveform ─────────────────────────────────────────────────────
+            const SizedBox(height: 18),
             LiveWaveform(
               amplitude: status.amplitude,
               isRecording: status.isRecording && !status.isPaused,
             ),
-            const SizedBox(height: 10),
-            _InputLevelMeter(
-              amplitude: status.amplitude,
-              active: status.isRecording && !status.isPaused,
-              paused: status.isPaused,
-            ),
-            const SizedBox(height: 10),
-            _CatchphraseDetectionStatus(status: status),
+
+            // ─── Mic meter ────────────────────────────────────────────────────
+            const SizedBox(height: 8),
+            _MicMeter(status: status),
+
+            // ─── Catchphrase radar ────────────────────────────────────────────
             if (status.isRecording) ...[
-              const SizedBox(height: 14),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: _LiveTranscriptPreview(
-                  key: ValueKey(status.liveTranscript),
-                  text: status.liveTranscript,
-                ),
-              ),
+              const SizedBox(height: 10),
+              _CatchphraseRadar(status: status),
             ],
+
+            // ─── Live transcript bubble ────────────────────────────────────────
+            if (status.isRecording && status.liveTranscript.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _LiveBubble(text: status.liveTranscript),
+            ],
+
+            // ─── Action buttons ───────────────────────────────────────────────
+            const SizedBox(height: 12),
             if (status.isRecording)
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -205,21 +188,21 @@ class _RecordingHero extends ConsumerWidget {
                           : Icons.pause_circle_rounded,
                     ),
                     label: Text(status.isPaused ? 'Resume' : 'Pause'),
-                    onPressed: () {
-                      final controller = ref.read(
-                        recordingControllerProvider.notifier,
-                      );
-                      if (status.isPaused) {
-                        controller.resumeRecording();
-                      } else {
-                        controller.pauseRecording();
-                      }
-                    },
+                    onPressed: status.isPaused
+                        ? () => ref
+                              .read(recordingControllerProvider.notifier)
+                              .resumeRecording()
+                        : () => ref
+                              .read(recordingControllerProvider.notifier)
+                              .pauseRecording(),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   TextButton.icon(
                     icon: const Icon(Icons.stop_circle_rounded),
                     label: const Text('Stop'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: CueColors.negative,
+                    ),
                     onPressed: () => ref
                         .read(recordingControllerProvider.notifier)
                         .stopRecording(reason: 'Stopped by user'),
@@ -244,41 +227,35 @@ class _RecordingHero extends ConsumerWidget {
   }
 }
 
-class _InputLevelMeter extends StatelessWidget {
-  const _InputLevelMeter({
-    required this.amplitude,
-    required this.active,
-    required this.paused,
-  });
-
-  final double amplitude;
-  final bool active;
-  final bool paused;
+class _MicMeter extends StatelessWidget {
+  const _MicMeter({required this.status});
+  final RecordingStatus status;
 
   @override
   Widget build(BuildContext context) {
-    final value = active ? amplitude.clamp(0, 1).toDouble() : 0.0;
+    final active = status.isRecording && !status.isPaused;
+    final value = active ? (status.amplitude * 0.55).clamp(0.0, 1.0) : 0.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(999),
           child: LinearProgressIndicator(
-            minHeight: 7,
+            minHeight: 5,
             value: value,
             backgroundColor: Theme.of(
               context,
             ).colorScheme.surfaceContainerHighest,
-            color: CueColors.primary,
+            color: CueColors.primary.withValues(alpha: 0.7),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Text(
           active
-              ? 'Mic input ${(value * 100).round()}%'
-              : paused
-              ? 'Mic input paused'
-              : 'Mic input inactive - start a session to enable waveform',
+              ? 'Mic ${(value * 100).round()}%'
+              : status.isPaused
+              ? 'Mic paused'
+              : 'Mic inactive',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -288,45 +265,45 @@ class _InputLevelMeter extends StatelessWidget {
   }
 }
 
-class _CatchphraseDetectionStatus extends StatelessWidget {
-  const _CatchphraseDetectionStatus({required this.status});
-
+class _CatchphraseRadar extends StatelessWidget {
+  const _CatchphraseRadar({required this.status});
   final RecordingStatus status;
 
   @override
   Widget build(BuildContext context) {
     final active = status.catchphraseDetectionActive && !status.isPaused;
-    final colors = Theme.of(context).colorScheme;
     final label = status.lastCatchphraseLabel;
-
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: active
             ? CueColors.positive.withValues(alpha: 0.10)
-            : colors.surfaceContainerHighest.withValues(alpha: 0.38),
-        borderRadius: BorderRadius.circular(16),
+            : Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
           Icon(
             active ? Icons.radar_rounded : Icons.radar_outlined,
-            color: active ? CueColors.positive : colors.onSurfaceVariant,
-            size: 18,
+            size: 16,
+            color: active
+                ? CueColors.positive
+                : Theme.of(context).colorScheme.outlineVariant,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              !status.isRecording
-                  ? 'Catchphrase reporting inactive'
-                  : active
+              active
                   ? label == null
-                        ? 'Catchphrase reporting active'
-                        : 'Reported "$label" (${status.catchphraseReportCount})'
-                  : 'Catchphrase reporting paused',
+                        ? 'Catchphrase detection active'
+                        : '"$label" detected (${status.catchphraseReportCount}×)'
+                  : 'Catchphrase detection paused',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: active ? CueColors.positive : colors.onSurfaceVariant,
+                color: active
+                    ? CueColors.positive
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -337,6 +314,30 @@ class _CatchphraseDetectionStatus extends StatelessWidget {
   }
 }
 
+class _LiveBubble extends StatelessWidget {
+  const _LiveBubble({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: CueColors.primary.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: CueColors.primary.withValues(alpha: 0.16)),
+      ),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.35),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════ Transcript panel ═════════════
+
 class _TranscriptPanel extends ConsumerStatefulWidget {
   const _TranscriptPanel();
 
@@ -345,122 +346,117 @@ class _TranscriptPanel extends ConsumerStatefulWidget {
 }
 
 class _TranscriptPanelState extends ConsumerState<_TranscriptPanel> {
-  final _transcriptController = TextEditingController();
-  final _searchController = TextEditingController();
-  final _focusNode = FocusNode();
+  final _controller = TextEditingController();
+  final _search = TextEditingController();
+  final _focus = FocusNode();
   bool _dirty = false;
 
   @override
   void initState() {
     super.initState();
-    _transcriptController.addListener(() {
-      if (_focusNode.hasFocus) {
-        _dirty = true;
-        setState(() {});
-      }
+    _controller.addListener(() {
+      if (_focus.hasFocus) setState(() => _dirty = true);
     });
-    _searchController.addListener(() => setState(() {}));
+    _search.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    _transcriptController.dispose();
-    _searchController.dispose();
-    _focusNode.dispose();
+    _controller.dispose();
+    _search.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final transcript = ref.watch(todayTranscriptProvider);
-    final recordingStatus = ref.watch(recordingControllerProvider);
+    final status = ref.watch(recordingControllerProvider);
     final catchphrases = ref
         .watch(catchphrasesProvider)
         .maybeWhen(data: (items) => items, orElse: () => <Catchphrase>[]);
-    final search = _searchController.text.trim();
+    final searchText = _search.text.trim();
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(22),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _SectionHeader(
-              title: 'Today\'s transcript',
-              subtitle: DateFormat.yMMMMEEEEd().format(DateTime.now()),
               icon: Icons.subject_rounded,
+              title: "Today's transcript",
+              subtitle: DateFormat.yMMMMEEEEd().format(DateTime.now()),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             TextField(
-              controller: _searchController,
+              controller: _search,
               decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.search_rounded),
-                hintText: 'Search the full day transcript',
+                hintText: 'Search transcript',
+                isDense: true,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             transcript.when(
-              data: (dailyTranscript) {
-                final displayText = _withLiveTranscript(
-                  dailyTranscript.text,
-                  recordingStatus.liveTranscript,
-                );
-                if (!_focusNode.hasFocus && !_dirty) {
-                  _transcriptController.text = displayText;
-                }
+              data: (t) {
+                final display = _merge(t.text, status.liveTranscript);
+                if (!_focus.hasFocus && !_dirty) _controller.text = display;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     TextField(
-                      controller: _transcriptController,
-                      focusNode: _focusNode,
-                      minLines: 7,
-                      maxLines: 14,
+                      controller: _controller,
+                      focusNode: _focus,
+                      minLines: 6,
+                      maxLines: 12,
                       textInputAction: TextInputAction.newline,
                       decoration: const InputDecoration(
+                        labelText: 'Edit inline',
+                        hintText: 'CUE appends earphone sessions here.',
                         alignLabelWithHint: true,
-                        labelText: 'Edit transcript inline',
-                        hintText: 'CUE will append session transcripts here.',
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     Row(
                       children: [
                         Expanded(
                           child: Text(
-                            'Last saved ${DateFormat.jm().format(dailyTranscript.updatedAt)}',
+                            'Saved ${DateFormat.jm().format(t.updatedAt)}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ),
                         FilledButton.icon(
+                          icon: const Icon(Icons.save_rounded, size: 16),
+                          label: const Text('Save'),
                           onPressed: () async {
-                            final textToSave = _focusNode.hasFocus || _dirty
-                                ? _transcriptController.text
-                                : dailyTranscript.text;
+                            final text = _focus.hasFocus || _dirty
+                                ? _controller.text
+                                : t.text;
                             await ref
                                 .read(transcriptControllerProvider.notifier)
-                                .saveToday(textToSave);
-                            _dirty = false;
-                            _focusNode.unfocus();
+                                .saveToday(text);
+                            setState(() => _dirty = false);
+                            _focus.unfocus();
                           },
-                          icon: const Icon(Icons.save_rounded),
-                          label: const Text('Save'),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 18),
-                    _HighlightedTranscript(
-                      text: _focusNode.hasFocus || _dirty
-                          ? _transcriptController.text
-                          : displayText,
-                      search: search,
-                      catchphrases: catchphrases,
-                    ),
+                    if (searchText.isNotEmpty || catchphrases.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      _HighlightedTranscript(
+                        text: _focus.hasFocus || _dirty
+                            ? _controller.text
+                            : display,
+                        search: searchText,
+                        catchphrases: catchphrases,
+                      ),
+                    ],
                   ],
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => Text('Could not load transcript: $error'),
+              error: (e, _) => Text('Error: $e'),
             ),
           ],
         ),
@@ -468,54 +464,11 @@ class _TranscriptPanelState extends ConsumerState<_TranscriptPanel> {
     );
   }
 
-  String _withLiveTranscript(String savedText, String liveTranscript) {
-    final live = liveTranscript.trim();
-    if (live.isEmpty) return savedText;
-    if (savedText.trim().isEmpty) return live;
-    return '$savedText\n$live';
-  }
-}
-
-class _LiveTranscriptPreview extends StatelessWidget {
-  const _LiveTranscriptPreview({required this.text, super.key});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final copy = text.trim().isEmpty ? 'Listening for speech...' : text.trim();
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: CueColors.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: CueColors.primary.withValues(alpha: 0.18)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Live transcript',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: CueColors.primary,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            copy,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: text.trim().isEmpty ? colors.onSurfaceVariant : null,
-              fontStyle: text.trim().isEmpty ? FontStyle.italic : null,
-              height: 1.35,
-            ),
-          ),
-        ],
-      ),
-    );
+  String _merge(String saved, String live) {
+    final l = live.trim();
+    if (l.isEmpty) return saved;
+    if (saved.trim().isEmpty) return l;
+    return '$saved $l';
   }
 }
 
@@ -532,8 +485,7 @@ class _HighlightedTranscript extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final spans = _buildSpans(context);
-    final searchCount = search.isEmpty
+    final matchCount = search.isEmpty
         ? 0
         : RegExp(
             RegExp.escape(search),
@@ -542,12 +494,12 @@ class _HighlightedTranscript extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Theme.of(
           context,
         ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -555,30 +507,31 @@ class _HighlightedTranscript extends StatelessWidget {
           Row(
             children: [
               Text(
-                'Highlighted view',
+                'Highlighted',
                 style: Theme.of(
                   context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
               const Spacer(),
               if (search.isNotEmpty)
                 Text(
-                  '$searchCount match${searchCount == 1 ? '' : 'es'}',
+                  '$matchCount match${matchCount == 1 ? '' : 'es'}',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 12,
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           SelectableText.rich(
             TextSpan(
               style: Theme.of(
                 context,
-              ).textTheme.bodyLarge?.copyWith(height: 1.5),
-              children: spans.isEmpty
+              ).textTheme.bodyMedium?.copyWith(height: 1.5),
+              children: text.isEmpty
                   ? const [TextSpan(text: 'No transcript yet.')]
-                  : spans,
+                  : _spans(context),
             ),
           ),
         ],
@@ -586,142 +539,87 @@ class _HighlightedTranscript extends StatelessWidget {
     );
   }
 
-  List<TextSpan> _buildSpans(BuildContext context) {
-    if (text.isEmpty) return const [];
-    final matches = <_TextHighlight>[];
-    for (final catchphrase in catchphrases) {
-      final expression = RegExp(
-        RegExp.escape(catchphrase.phrase),
+  List<TextSpan> _spans(BuildContext context) {
+    final highlights = <_HL>[];
+    for (final cp in catchphrases) {
+      for (final m in RegExp(
+        RegExp.escape(cp.phrase),
         caseSensitive: false,
-      );
-      for (final match in expression.allMatches(text)) {
-        matches.add(
-          _TextHighlight(
-            match.start,
-            match.end,
-            catchphrase.color.withValues(alpha: 0.35),
-          ),
-        );
+      ).allMatches(text)) {
+        highlights.add(_HL(m.start, m.end, cp.color.withValues(alpha: 0.32)));
       }
     }
     if (search.isNotEmpty) {
-      final expression = RegExp(RegExp.escape(search), caseSensitive: false);
-      for (final match in expression.allMatches(text)) {
-        matches.add(
-          _TextHighlight(
-            match.start,
-            match.end,
-            Colors.amber.withValues(alpha: 0.45),
-          ),
+      for (final m in RegExp(
+        RegExp.escape(search),
+        caseSensitive: false,
+      ).allMatches(text)) {
+        highlights.add(
+          _HL(m.start, m.end, Colors.amber.withValues(alpha: 0.42)),
         );
       }
     }
-
-    matches.sort((a, b) => a.start.compareTo(b.start));
+    highlights.sort((a, b) => a.start.compareTo(b.start));
     final spans = <TextSpan>[];
-    var index = 0;
-    for (final match in matches) {
-      if (match.start < index) continue;
-      if (match.start > index) {
-        spans.add(TextSpan(text: text.substring(index, match.start)));
+    var idx = 0;
+    for (final h in highlights) {
+      if (h.start < idx) continue;
+      if (h.start > idx) {
+        spans.add(TextSpan(text: text.substring(idx, h.start)));
       }
       spans.add(
         TextSpan(
-          text: text.substring(match.start, match.end),
+          text: text.substring(h.start, h.end),
           style: TextStyle(
-            backgroundColor: match.color,
-            fontWeight: FontWeight.w800,
+            backgroundColor: h.color,
+            fontWeight: FontWeight.w700,
           ),
         ),
       );
-      index = match.end;
+      idx = h.end;
     }
-    if (index < text.length) spans.add(TextSpan(text: text.substring(index)));
+    if (idx < text.length) spans.add(TextSpan(text: text.substring(idx)));
     return spans;
   }
 }
 
-class _TextHighlight {
-  const _TextHighlight(this.start, this.end, this.color);
-
+class _HL {
+  const _HL(this.start, this.end, this.color);
   final int start;
   final int end;
   final Color color;
 }
 
-class _DailySummaryPanel extends ConsumerWidget {
-  const _DailySummaryPanel();
+// ═══════════════════════════════════════════════ Catchphrase stats ════════════
+
+class _CatchphraseStatsPanel extends ConsumerWidget {
+  const _CatchphraseStatsPanel();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final summary = ref.watch(todaySummaryProvider);
+    final stats = ref.watch(todayCatchphraseStatsProvider);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(22),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const _SectionHeader(
-              title: 'Daily summary',
-              subtitle: 'Automatically generated from today\'s transcript.',
-              icon: Icons.auto_stories_rounded,
+              icon: Icons.bar_chart_rounded,
+              title: 'Catchphrase log',
+              subtitle: "Today's occurrences — tap count for details",
             ),
-            const SizedBox(height: 14),
-            summary.when(
-              data: (value) {
-                if (value == null) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'No summary yet. CUE will summarize once transcript text is captured.',
-                      ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: () => ref
-                            .read(insightControllerProvider.notifier)
-                            .refreshToday(),
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('Generate now'),
-                      ),
-                    ],
-                  );
-                }
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      value.summary,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodyLarge?.copyWith(height: 1.4),
+            const SizedBox(height: 12),
+            stats.when(
+              data: (items) => items.isEmpty
+                  ? const Text('No catchphrases heard yet today.')
+                  : Column(
+                      children: items
+                          .map((stat) => _StatRow(stat: stat))
+                          .toList(),
                     ),
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _MetricChip(
-                          icon: Icons.notes_rounded,
-                          label: '${value.wordCount} words',
-                        ),
-                        _MetricChip(
-                          icon: Icons.radar_rounded,
-                          label: '${value.catchphraseCount} reports',
-                        ),
-                        _MetricChip(
-                          icon: Icons.notifications_active_rounded,
-                          label: '${value.reminderCount} reminders',
-                        ),
-                        for (final keyword in value.keywords)
-                          _MetricChip(icon: Icons.tag_rounded, label: keyword),
-                      ],
-                    ),
-                  ],
-                );
-              },
               loading: () => const LinearProgressIndicator(),
-              error: (error, _) => Text('Could not load summary: $error'),
+              error: (e, _) => Text('Error: $e'),
             ),
           ],
         ),
@@ -729,6 +627,136 @@ class _DailySummaryPanel extends ConsumerWidget {
     );
   }
 }
+
+class _StatRow extends StatelessWidget {
+  const _StatRow({required this.stat});
+  final CatchphraseStat stat;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: stat.catchphrase.color,
+        radius: 18,
+        child: Text(
+          stat.count.toString(),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 13,
+          ),
+        ),
+      ),
+      title: Text(
+        stat.catchphrase.phrase,
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+      subtitle: Text(
+        stat.catchphrase.tag.label,
+        style: const TextStyle(fontSize: 12),
+      ),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: () => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => _CatchphraseDetailSheet(stat: stat),
+      ),
+    );
+  }
+}
+
+class _CatchphraseDetailSheet extends StatelessWidget {
+  const _CatchphraseDetailSheet({required this.stat});
+  final CatchphraseStat stat;
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.65,
+      maxChildSize: 0.92,
+      builder: (_, sc) => ListView(
+        controller: sc,
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+        children: [
+          _SectionHeader(
+            icon: Icons.bar_chart_rounded,
+            title: '"${stat.catchphrase.phrase}"',
+            subtitle:
+                '${stat.count} occurrence${stat.count == 1 ? '' : 's'} today',
+          ),
+          const SizedBox(height: 16),
+          for (final hit in stat.hits)
+            Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: stat.catchphrase.color,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            DateFormat.jms().format(hit.spokenAt),
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 4),
+                          if (hit.latitude != null && hit.longitude != null)
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.location_on_rounded,
+                                  size: 13,
+                                  color: CueColors.primary,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${hit.latitude!.toStringAsFixed(5)}, ${hit.longitude!.toStringAsFixed(5)}',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            )
+                          else
+                            const Text(
+                              'No GPS data',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          const SizedBox(height: 4),
+                          Text(
+                            hit.context.length > 80
+                                ? '${hit.context.substring(0, 80)}…'
+                                : hit.context,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════ Reminders ════════════════════
 
 class _RemindersPanel extends ConsumerWidget {
   const _RemindersPanel();
@@ -738,42 +766,42 @@ class _RemindersPanel extends ConsumerWidget {
     final reminders = ref.watch(openRemindersProvider);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(22),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const _SectionHeader(
-              title: 'Automatic reminders',
-              subtitle:
-                  'Created when CUE hears phrases like "remind me to" or "I need to".',
               icon: Icons.notifications_active_rounded,
+              title: 'Reminders',
+              subtitle: 'Auto-extracted from transcript · synced to MS To-Do',
             ),
             const SizedBox(height: 12),
             reminders.when(
-              data: (items) {
-                if (items.isEmpty) {
-                  return const Text(
-                    'No open reminders yet. Try saying "remind me to call Sam tomorrow".',
-                  );
-                }
-                return Column(
-                  children: [
-                    for (final reminder in items)
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: reminder.completed,
-                        onChanged: (_) => ref
-                            .read(insightControllerProvider.notifier)
-                            .completeReminder(reminder.id),
-                        title: Text(reminder.text),
-                        subtitle: Text(_reminderSubtitle(reminder)),
-                        controlAffinity: ListTileControlAffinity.leading,
-                      ),
-                  ],
-                );
-              },
+              data: (items) => items.isEmpty
+                  ? const Text(
+                      'No open reminders. Say "remind me to…" while recording.',
+                    )
+                  : Column(
+                      children: items
+                          .map(
+                            (r) => CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              value: r.completed,
+                              onChanged: (_) => ref
+                                  .read(insightControllerProvider.notifier)
+                                  .completeReminder(r.id),
+                              title: Text(r.text),
+                              subtitle: Text(
+                                _subtitle(r),
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              controlAffinity: ListTileControlAffinity.leading,
+                            ),
+                          )
+                          .toList(),
+                    ),
               loading: () => const LinearProgressIndicator(),
-              error: (error, _) => Text('Could not load reminders: $error'),
+              error: (e, _) => Text('Error: $e'),
             ),
           ],
         ),
@@ -781,103 +809,116 @@ class _RemindersPanel extends ConsumerWidget {
     );
   }
 
-  String _reminderSubtitle(CueReminder reminder) {
-    final created = DateFormat.MMMd().add_jm().format(reminder.createdAt);
-    final due = reminder.dueAt == null
-        ? 'No due time inferred'
-        : 'Due ${DateFormat.MMMd().add_jm().format(reminder.dueAt!)}';
-    return '$due - Heard: "${reminder.sourceText}" - $created';
+  String _subtitle(CueReminder r) {
+    final created = DateFormat.MMMd().add_jm().format(r.createdAt);
+    final due = r.dueAt == null
+        ? ''
+        : ' · due ${DateFormat.MMMd().format(r.dueAt!)}';
+    final ms = r.microsoftToDoId != null ? ' · ✓ To-Do' : '';
+    return '$created$due$ms';
   }
 }
 
-class _MetricChip extends StatelessWidget {
-  const _MetricChip({required this.icon, required this.label});
+// ═══════════════════════════════════════════════ Daily summary ════════════════
 
+class _DailySummaryPanel extends ConsumerWidget {
+  const _DailySummaryPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final summary = ref.watch(todaySummaryProvider);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: _SectionHeader(
+                    icon: Icons.auto_stories_rounded,
+                    title: 'Daily summary',
+                    subtitle: 'Generated from today\'s transcript',
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Regenerate',
+                  icon: const Icon(Icons.refresh_rounded),
+                  onPressed: () => ref
+                      .read(insightControllerProvider.notifier)
+                      .refreshToday(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            summary.when(
+              data: (s) => s == null
+                  ? const Text(
+                      'No summary yet. Record some audio or tap regenerate.',
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(s.summary, style: const TextStyle(height: 1.45)),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _Chip(Icons.notes_rounded, '${s.wordCount} words'),
+                            _Chip(
+                              Icons.radar_rounded,
+                              '${s.catchphraseCount} catchphrases',
+                            ),
+                            _Chip(
+                              Icons.notifications_rounded,
+                              '${s.reminderCount} reminders',
+                            ),
+                            for (final kw in s.keywords)
+                              _Chip(Icons.tag_rounded, kw),
+                          ],
+                        ),
+                      ],
+                    ),
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip(this.icon, this.label);
   final IconData icon;
   final String label;
 
   @override
   Widget build(BuildContext context) {
     return Chip(
-      avatar: Icon(icon, size: 16, color: CueColors.primary),
-      label: Text(label),
+      avatar: Icon(icon, size: 14, color: CueColors.primary),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
       side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+      padding: const EdgeInsets.symmetric(horizontal: 2),
     );
   }
 }
 
-class _RecentHitsPanel extends ConsumerWidget {
-  const _RecentHitsPanel();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final hits = ref.watch(recentHitsProvider);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _SectionHeader(
-              title: 'Habit log',
-              subtitle: 'Catchphrase time, mood, and location captures.',
-              icon: Icons.timeline_rounded,
-            ),
-            const SizedBox(height: 12),
-            hits.when(
-              data: (items) {
-                if (items.isEmpty) {
-                  return const Text('No catchphrase events logged yet.');
-                }
-                return Column(
-                  children: [
-                    for (final hit in items)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(
-                          hit.acknowledged
-                              ? Icons.check_circle_rounded
-                              : Icons.mood_rounded,
-                          color: hit.acknowledged
-                              ? CueColors.positive
-                              : CueColors.primary,
-                        ),
-                        title: Text(hit.phrase),
-                        subtitle: Text(_hitSubtitle(hit)),
-                      ),
-                  ],
-                );
-              },
-              loading: () => const LinearProgressIndicator(),
-              error: (error, _) => Text('Could not load habit log: $error'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _hitSubtitle(CatchphraseHit hit) {
-    final time = DateFormat.MMMd().add_jm().format(hit.spokenAt);
-    final mood = hit.mood == null ? 'Mood pending' : hit.mood!.label;
-    final location = hit.latitude == null || hit.longitude == null
-        ? 'No location'
-        : '${hit.latitude!.toStringAsFixed(4)}, '
-              '${hit.longitude!.toStringAsFixed(4)}';
-    return '$time - $mood - $location';
-  }
-}
+// ═══════════════════════════════════════════════ Shared widgets ═══════════════
 
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({
+    required this.icon,
     required this.title,
     required this.subtitle,
-    required this.icon,
   });
 
+  final IconData icon;
   final String title;
   final String subtitle;
-  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -885,12 +926,12 @@ class _SectionHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(9),
           decoration: BoxDecoration(
-            color: CueColors.primary.withValues(alpha: 0.11),
-            borderRadius: BorderRadius.circular(16),
+            color: CueColors.primary.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
           ),
-          child: Icon(icon, color: CueColors.primary),
+          child: Icon(icon, color: CueColors.primary, size: 20),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -901,12 +942,13 @@ class _SectionHeader extends StatelessWidget {
                 title,
                 style: Theme.of(
                   context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 2),
               Text(
                 subtitle,
                 style: TextStyle(
+                  fontSize: 12,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -918,205 +960,350 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _MoodPicker extends StatelessWidget {
-  const _MoodPicker({required this.prompt});
-
-  final PendingCatchphrasePrompt prompt;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'How did you feel?',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'CUE heard "${prompt.catchphrase.phrase}" and logged this moment.',
-          ),
-          const SizedBox(height: 18),
-          GridView.count(
-            shrinkWrap: true,
-            crossAxisCount: 2,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 3.4,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              for (final mood in CueMood.values)
-                OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(mood),
-                  child: Text('${mood.emoji} ${mood.label}'),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
+// ═══════════════════════════════════════════════ Settings sheet ═══════════════
 
 Future<void> _showSettings(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (context) => Consumer(
-      builder: (context, ref, _) {
-        final themeMode = ref.watch(themeModeControllerProvider);
+    builder: (ctx) => Consumer(
+      builder: (ctx, ref, _) {
         return DraggableScrollableSheet(
           expand: false,
-          initialChildSize: 0.72,
-          minChildSize: 0.45,
-          maxChildSize: 0.92,
-          builder: (context, scrollController) {
-            return ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
-              children: [
-                const _SectionHeader(
-                  title: 'Settings',
-                  subtitle: 'CUE starts in light mode by default.',
-                  icon: Icons.settings_rounded,
-                ),
-                const SizedBox(height: 16),
-                SegmentedButton<ThemeMode>(
-                  segments: const [
-                    ButtonSegment(
-                      value: ThemeMode.light,
-                      label: Text('Light'),
-                      icon: Icon(Icons.light_mode_rounded),
-                    ),
-                    ButtonSegment(
-                      value: ThemeMode.dark,
-                      label: Text('Dark'),
-                      icon: Icon(Icons.dark_mode_rounded),
-                    ),
-                  ],
-                  selected: {themeMode},
-                  onSelectionChanged: (selection) {
-                    ref
-                        .read(themeModeControllerProvider.notifier)
-                        .setThemeMode(selection.single);
-                  },
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Audio catchphrases',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    FilledButton.icon(
-                      onPressed: () => _showCatchphraseSheet(context, ref),
-                      icon: const Icon(Icons.mic_rounded),
-                      label: const Text('Record'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Each catchphrase has a short audio sample, a text label used for transcript matching, and a highlight color.',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const _CatchphraseList(compact: true),
-              ],
-            );
-          },
+          initialChildSize: 0.75,
+          maxChildSize: 0.95,
+          builder: (_, sc) => _SettingsContent(scrollController: sc),
         );
       },
     ),
   );
 }
 
-class _CatchphraseList extends ConsumerWidget {
-  const _CatchphraseList({this.compact = false});
-
-  final bool compact;
+class _SettingsContent extends ConsumerStatefulWidget {
+  const _SettingsContent({required this.scrollController});
+  final ScrollController scrollController;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SettingsContent> createState() => _SettingsContentState();
+}
+
+class _SettingsContentState extends ConsumerState<_SettingsContent> {
+  final _clientIdController = TextEditingController();
+  String? _deviceUserCode;
+  bool _polling = false;
+  bool _msEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initMsStatus();
+  }
+
+  Future<void> _initMsStatus() async {
+    final svc = ref.read(microsoftToDoServiceProvider);
+    final enabled = await svc.isEnabled;
+    final id = await svc.clientId;
+    if (mounted) {
+      setState(() {
+        _msEnabled = enabled;
+        _clientIdController.text = id ?? '';
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _clientIdController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeMode = ref.watch(themeModeControllerProvider);
     final catchphrases = ref.watch(catchphrasesProvider);
-    return catchphrases.when(
-      data: (items) {
-        if (items.isEmpty) {
-          return Text(
-            'No audio catchphrases yet. Tap Record to add one.',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+
+    return ListView(
+      controller: widget.scrollController,
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
+      children: [
+        // ── Appearance ─────────────────────────────────────────────────────
+        const _SectionHeader(
+          icon: Icons.settings_rounded,
+          title: 'Settings',
+          subtitle: 'App preferences',
+        ),
+        const SizedBox(height: 16),
+        SegmentedButton<ThemeMode>(
+          segments: const [
+            ButtonSegment(
+              value: ThemeMode.light,
+              label: Text('Light'),
+              icon: Icon(Icons.light_mode_rounded),
             ),
-          );
-        }
-        return Column(
+            ButtonSegment(
+              value: ThemeMode.dark,
+              label: Text('Dark'),
+              icon: Icon(Icons.dark_mode_rounded),
+            ),
+          ],
+          selected: {themeMode},
+          onSelectionChanged: (s) => ref
+              .read(themeModeControllerProvider.notifier)
+              .setThemeMode(s.single),
+        ),
+
+        // ── Audio catchphrases ─────────────────────────────────────────────
+        const SizedBox(height: 28),
+        Row(
           children: [
-            for (final item in items)
-              ListTile(
-                dense: compact,
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                  backgroundColor: item.color,
-                  child: const Icon(
-                    Icons.graphic_eq_rounded,
-                    color: Colors.white,
-                    size: 18,
+            const Expanded(
+              child: _SectionHeader(
+                icon: Icons.graphic_eq_rounded,
+                title: 'Audio catchphrases',
+                subtitle: 'Record voice samples · assign tags',
+              ),
+            ),
+            FilledButton.icon(
+              icon: const Icon(Icons.mic_rounded, size: 16),
+              label: const Text('Record'),
+              onPressed: () => _showAddCatchphrase(context),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        catchphrases.when(
+          data: (items) => items.isEmpty
+              ? Text(
+                  'No catchphrases yet. Tap Record to add one.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
+                )
+              : Column(
+                  children: items
+                      .map((cp) => _CatchphraseSettingsRow(catchphrase: cp))
+                      .toList(),
                 ),
-                title: Text(item.phrase),
-                subtitle: Text(
-                  item.audioPath == null
-                      ? 'Legacy text-only catchphrase'
-                      : 'Voice sample saved',
-                ),
-                trailing: IconButton(
-                  tooltip: 'Delete',
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  onPressed: () => ref
-                      .read(catchphraseControllerProvider.notifier)
-                      .delete(item.id),
+          loading: () => const LinearProgressIndicator(),
+          error: (e, _) => Text('Error: $e'),
+        ),
+
+        // ── Microsoft To-Do ────────────────────────────────────────────────
+        const SizedBox(height: 28),
+        const _SectionHeader(
+          icon: Icons.task_alt_rounded,
+          title: 'Microsoft To-Do',
+          subtitle: 'Auto-add reminders to your To-Do list',
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _clientIdController,
+          decoration: const InputDecoration(
+            labelText: 'Azure App Client ID',
+            hintText: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+          ),
+          onSubmitted: (v) async {
+            await ref.read(microsoftToDoServiceProvider).saveClientId(v);
+            if (mounted) setState(() {});
+          },
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                _msEnabled ? 'Connected to Microsoft To-Do' : 'Not connected',
+                style: TextStyle(
+                  color: _msEnabled
+                      ? CueColors.positive
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
+            ),
+            if (_msEnabled)
+              TextButton(
+                onPressed: () async {
+                  await ref.read(microsoftToDoServiceProvider).signOut();
+                  if (mounted) setState(() => _msEnabled = false);
+                },
+                child: const Text('Sign out'),
+              )
+            else
+              FilledButton(
+                onPressed: _polling ? null : _startMsSignIn,
+                child: Text(_polling ? 'Waiting…' : 'Connect'),
+              ),
           ],
-        );
-      },
-      loading: () => const LinearProgressIndicator(),
-      error: (error, _) => Text('Could not load catchphrases: $error'),
+        ),
+        if (_deviceUserCode != null) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: CueColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Visit microsoft.com/devicelogin and enter:',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      _deviceUserCode!,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 4,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded),
+                      onPressed: () => Clipboard.setData(
+                        ClipboardData(text: _deviceUserCode!),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.open_in_browser_rounded),
+                      onPressed: () => launchUrl(
+                        Uri.parse('https://microsoft.com/devicelogin'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _startMsSignIn() async {
+    final id = _clientIdController.text.trim();
+    if (id.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter your Azure Client ID first.')),
+      );
+      return;
+    }
+    try {
+      await ref.read(microsoftToDoServiceProvider).saveClientId(id);
+      final svc = ref.read(microsoftToDoServiceProvider);
+      final pending = await svc.requestDeviceCode();
+      setState(() {
+        _polling = true;
+        _deviceUserCode = pending.userCode;
+      });
+      final ok = await svc.pollForToken(pending);
+      if (mounted) {
+        setState(() {
+          _msEnabled = ok;
+          _polling = false;
+          _deviceUserCode = null;
+        });
+      }
+    } on Exception catch (e) {
+      if (mounted) {
+        setState(() {
+          _polling = false;
+          _deviceUserCode = null;
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
+  }
+
+  void _showAddCatchphrase(BuildContext ctx) {
+    showModalBottomSheet<void>(
+      context: ctx,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _AddCatchphraseForm(parentRef: ref),
     );
   }
 }
 
-Future<void> _showCatchphraseSheet(BuildContext context, WidgetRef ref) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (context) => _CatchphraseForm(ref: ref),
-  );
-}
+// ── Catchphrase row in settings ─────────────────────────────────────────────
 
-class _CatchphraseForm extends StatefulWidget {
-  const _CatchphraseForm({required this.ref});
-
-  final WidgetRef ref;
+class _CatchphraseSettingsRow extends ConsumerWidget {
+  const _CatchphraseSettingsRow({required this.catchphrase});
+  final Catchphrase catchphrase;
 
   @override
-  State<_CatchphraseForm> createState() => _CatchphraseFormState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: catchphrase.color,
+        radius: 18,
+        child: const Icon(
+          Icons.graphic_eq_rounded,
+          color: Colors.white,
+          size: 16,
+        ),
+      ),
+      title: Text(
+        catchphrase.phrase,
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+      subtitle: DropdownButton<CatchphraseTag>(
+        value: catchphrase.tag,
+        isDense: true,
+        underline: const SizedBox(),
+        items: CatchphraseTag.values
+            .map(
+              (t) => DropdownMenuItem(
+                value: t,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(t.icon, size: 14, color: CueColors.primary),
+                    const SizedBox(width: 6),
+                    Text(t.label, style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+            )
+            .toList(),
+        onChanged: (t) {
+          if (t != null) {
+            ref
+                .read(catchphraseControllerProvider.notifier)
+                .updateTag(catchphrase.id, t);
+          }
+        },
+      ),
+      trailing: IconButton(
+        icon: const Icon(Icons.delete_outline_rounded),
+        onPressed: () => ref
+            .read(catchphraseControllerProvider.notifier)
+            .delete(catchphrase.id),
+      ),
+    );
+  }
 }
 
-class _CatchphraseFormState extends State<_CatchphraseForm> {
+// ── Add catchphrase form ─────────────────────────────────────────────────────
+
+class _AddCatchphraseForm extends StatefulWidget {
+  const _AddCatchphraseForm({required this.parentRef});
+  final WidgetRef parentRef;
+
+  @override
+  State<_AddCatchphraseForm> createState() => _AddCatchphraseFormState();
+}
+
+class _AddCatchphraseFormState extends State<_AddCatchphraseForm> {
   static const _colors = [
     Color(0xFFFFC857),
     Color(0xFF7BDFF2),
@@ -1128,6 +1315,7 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
 
   final _phraseController = TextEditingController();
   Color _color = _colors.first;
+  CatchphraseTag _tag = CatchphraseTag.countOnly;
   bool _isRecording = false;
   String? _audioPath;
   String? _error;
@@ -1136,7 +1324,7 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
   void dispose() {
     _phraseController.dispose();
     if (_isRecording) {
-      widget.ref
+      widget.parentRef
           .read(catchphraseAudioServiceProvider)
           .stopSampleRecording()
           .ignore();
@@ -1148,9 +1336,9 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        22,
+        20,
         0,
-        22,
+        20,
         MediaQuery.of(context).viewInsets.bottom + 28,
       ),
       child: SingleChildScrollView(
@@ -1159,12 +1347,12 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const _SectionHeader(
-              title: 'Record catchphrase',
-              subtitle:
-                  'Say the phrase once, then add its text label and highlight color.',
               icon: Icons.add_reaction_rounded,
+              title: 'New catchphrase',
+              subtitle: 'Record voice · label · pick tag',
             ),
             const SizedBox(height: 16),
+            // Record button.
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
@@ -1178,58 +1366,92 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
                 ),
                 label: Text(
                   _isRecording
-                      ? 'Stop recording sample'
+                      ? 'Stop recording'
                       : _audioPath == null
-                      ? 'Record audio sample'
-                      : 'Re-record audio sample',
+                      ? 'Record voice sample'
+                      : 'Re-record',
                 ),
                 onPressed: _toggleRecording,
               ),
             ),
             if (_audioPath != null && !_isRecording) ...[
               const SizedBox(height: 8),
-              Row(
+              const Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.check_circle_rounded,
                     color: CueColors.positive,
+                    size: 18,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Audio sample saved',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
+                  SizedBox(width: 6),
+                  Text(
+                    'Audio sample ready',
+                    style: TextStyle(color: CueColors.positive),
                   ),
                 ],
               ),
             ],
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             TextField(
               controller: _phraseController,
               textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(
                 labelText: 'Text label',
-                hintText: 'for example: drink water',
+                hintText: 'e.g. drink water',
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
+            // Color picker.
             Wrap(
               spacing: 10,
-              children: [
-                for (final color in _colors)
-                  ChoiceChip(
-                    selected: _color == color,
-                    label: const SizedBox(width: 24, height: 24),
-                    avatar: CircleAvatar(backgroundColor: color),
-                    onSelected: (_) => setState(() => _color = color),
-                  ),
-              ],
+              children: _colors
+                  .map(
+                    (c) => GestureDetector(
+                      onTap: () => setState(() => _color = c),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: c,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: _color == c
+                                ? Colors.black87
+                                : Colors.transparent,
+                            width: 2.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 12),
+            // Tag picker.
+            DropdownButtonFormField<CatchphraseTag>(
+              initialValue: _tag,
+              decoration: const InputDecoration(labelText: 'Tag'),
+              items: CatchphraseTag.values
+                  .map(
+                    (t) => DropdownMenuItem(
+                      value: t,
+                      child: Row(
+                        children: [
+                          Icon(t.icon, size: 16, color: CueColors.primary),
+                          const SizedBox(width: 8),
+                          Text(t.label),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (t) {
+                if (t != null) setState(() => _tag = t);
+              },
             ),
             if (_error != null) ...[
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               Text(_error!, style: const TextStyle(color: CueColors.negative)),
             ],
             const SizedBox(height: 18),
@@ -1237,7 +1459,7 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
               width: double.infinity,
               child: FilledButton.icon(
                 icon: const Icon(Icons.check_rounded),
-                label: const Text('Save audio catchphrase'),
+                label: const Text('Save catchphrase'),
                 onPressed: _isRecording ? null : _save,
               ),
             ),
@@ -1250,50 +1472,46 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
   Future<void> _toggleRecording() async {
     setState(() => _error = null);
     try {
-      final recordingStatus = widget.ref.read(recordingControllerProvider);
-      if (!_isRecording && recordingStatus.isRecording) {
-        throw StateError(
-          'Stop the active session before recording a catchphrase sample.',
-        );
-      }
-      final service = widget.ref.read(catchphraseAudioServiceProvider);
+      final svc = widget.parentRef.read(catchphraseAudioServiceProvider);
       if (_isRecording) {
-        final path = await service.stopSampleRecording();
+        final path = await svc.stopSampleRecording();
         setState(() {
           _isRecording = false;
           _audioPath = path ?? _audioPath;
         });
       } else {
-        final path = await service.startSampleRecording();
+        final path = await svc.startSampleRecording();
         setState(() {
           _isRecording = true;
           _audioPath = path;
         });
       }
-    } catch (error) {
+    } catch (e) {
       setState(() {
         _isRecording = false;
-        _error = error.toString();
+        _error = e.toString();
       });
     }
   }
 
   Future<void> _save() async {
+    final path = _audioPath;
+    if (path == null) {
+      setState(() => _error = 'Record a voice sample first.');
+      return;
+    }
     try {
-      final audioPath = _audioPath;
-      if (audioPath == null) {
-        throw ArgumentError('Record an audio sample first.');
-      }
-      await widget.ref
+      await widget.parentRef
           .read(catchphraseControllerProvider.notifier)
           .add(
             phrase: _phraseController.text,
             color: _color,
-            audioPath: audioPath,
+            audioPath: path,
+            tag: _tag,
           );
       if (mounted) Navigator.of(context).pop();
-    } catch (error) {
-      setState(() => _error = error.toString());
+    } catch (e) {
+      setState(() => _error = e.toString());
     }
   }
 }

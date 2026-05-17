@@ -1,54 +1,84 @@
 import 'package:flutter/material.dart';
 
-enum HabitPolarity {
-  desired('+'),
-  undesired('-');
+// ---------------------------------------------------------------------------
+// Catchphrase tag – controls how each phrase is treated at detection time.
+// ---------------------------------------------------------------------------
+enum CatchphraseTag {
+  countOnly('Count only', Icons.tag_rounded, 'Log count; no other action.'),
+  transcribeSeparately(
+    'Transcribe separately',
+    Icons.description_rounded,
+    'Save speech around this phrase as a separate note.',
+  ),
+  reminder('Reminder', Icons.notifications_rounded, 'Add a reminder.'),
+  delegate('Delegate', Icons.person_rounded, 'Flag for follow-up delegation.');
 
-  const HabitPolarity(this.symbol);
-
-  final String symbol;
-
-  static HabitPolarity fromSymbol(String symbol) {
-    return symbol == '-' ? HabitPolarity.undesired : HabitPolarity.desired;
-  }
-}
-
-enum CueMood {
-  energized('Energized', ':)'),
-  calm('Calm', '-_-'),
-  proud('Proud', '^_^'),
-  neutral('Neutral', ':|'),
-  stressed('Stressed', ':/'),
-  frustrated('Frustrated', '>:(');
-
-  const CueMood(this.label, this.emoji);
+  const CatchphraseTag(this.label, this.icon, this.description);
 
   final String label;
-  final String emoji;
+  final IconData icon;
+  final String description;
 }
 
+// ---------------------------------------------------------------------------
+// Catchphrase
+// ---------------------------------------------------------------------------
 class Catchphrase {
   const Catchphrase({
     required this.id,
     required this.phrase,
-    required this.polarity,
     required this.color,
     required this.createdAt,
     this.audioPath,
-    this.notes,
+    this.tag = CatchphraseTag.countOnly,
   });
 
   final int id;
   final String phrase;
-  final HabitPolarity polarity;
   final Color color;
   final String? audioPath;
-  final String? notes;
+  final CatchphraseTag tag;
   final DateTime createdAt;
-
-  bool get isDesired => polarity == HabitPolarity.desired;
 }
 
+// ---------------------------------------------------------------------------
+// Catchphrase hit – every occurrence is a separate entry; no mood/ack
+// ---------------------------------------------------------------------------
+class CatchphraseHit {
+  const CatchphraseHit({
+    required this.id,
+    required this.catchphraseId,
+    required this.phrase,
+    required this.spokenAt,
+    required this.context,
+    required this.sessionId,
+    this.latitude,
+    this.longitude,
+  });
+
+  final int id;
+  final int catchphraseId;
+  final String phrase;
+  final DateTime spokenAt;
+  final double? latitude;
+  final double? longitude;
+  final String context;
+  final int sessionId;
+}
+
+// Aggregated view: catchphrase label + total hit count
+class CatchphraseStat {
+  const CatchphraseStat({required this.catchphrase, required this.hits});
+
+  final Catchphrase catchphrase;
+  final List<CatchphraseHit> hits;
+
+  int get count => hits.length;
+}
+
+// ---------------------------------------------------------------------------
+// Daily transcript
+// ---------------------------------------------------------------------------
 class DailyTranscript {
   const DailyTranscript({
     required this.day,
@@ -61,6 +91,9 @@ class DailyTranscript {
   final DateTime updatedAt;
 }
 
+// ---------------------------------------------------------------------------
+// Daily summary
+// ---------------------------------------------------------------------------
 class DailySummary {
   const DailySummary({
     required this.day,
@@ -81,6 +114,9 @@ class DailySummary {
   final DateTime updatedAt;
 }
 
+// ---------------------------------------------------------------------------
+// Reminders (auto-generated + optional Microsoft To-Do sync)
+// ---------------------------------------------------------------------------
 class CueReminder {
   const CueReminder({
     required this.id,
@@ -90,6 +126,7 @@ class CueReminder {
     required this.completed,
     this.dueAt,
     this.completedAt,
+    this.microsoftToDoId,
   });
 
   final int id;
@@ -99,8 +136,12 @@ class CueReminder {
   final DateTime? dueAt;
   final bool completed;
   final DateTime? completedAt;
+  final String? microsoftToDoId;
 }
 
+// ---------------------------------------------------------------------------
+// Recording session
+// ---------------------------------------------------------------------------
 class RecordingSession {
   const RecordingSession({
     required this.id,
@@ -119,40 +160,9 @@ class RecordingSession {
   bool get isActive => endedAt == null;
 }
 
-class CatchphraseHit {
-  const CatchphraseHit({
-    required this.id,
-    required this.catchphraseId,
-    required this.phrase,
-    required this.spokenAt,
-    required this.context,
-    required this.acknowledged,
-    this.latitude,
-    this.longitude,
-    this.mood,
-  });
-
-  final int id;
-  final int catchphraseId;
-  final String phrase;
-  final DateTime spokenAt;
-  final double? latitude;
-  final double? longitude;
-  final CueMood? mood;
-  final String context;
-  final bool acknowledged;
-}
-
-class PendingCatchphrasePrompt {
-  const PendingCatchphrasePrompt({
-    required this.hit,
-    required this.catchphrase,
-  });
-
-  final CatchphraseHit hit;
-  final Catchphrase catchphrase;
-}
-
+// ---------------------------------------------------------------------------
+// RecordingStatus (Riverpod state)
+// ---------------------------------------------------------------------------
 class RecordingStatus {
   const RecordingStatus({
     required this.isRecording,

@@ -2,9 +2,11 @@ import 'package:cue/src/data/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('catchphrase polarity maps from persisted symbols', () {
-    expect(HabitPolarity.fromSymbol('+'), HabitPolarity.desired);
-    expect(HabitPolarity.fromSymbol('-'), HabitPolarity.undesired);
+  test('CatchphraseTag has expected tag names', () {
+    expect(CatchphraseTag.countOnly.name, 'countOnly');
+    expect(CatchphraseTag.reminder.name, 'reminder');
+    expect(CatchphraseTag.delegate.name, 'delegate');
+    expect(CatchphraseTag.transcribeSeparately.name, 'transcribeSeparately');
   });
 
   test('recording status can clear active sessions', () {
@@ -18,9 +20,7 @@ void main() {
       earphonesConnected: true,
       session: session,
     );
-
     final stopped = status.copyWith(isRecording: false, clearSession: true);
-
     expect(stopped.isRecording, isFalse);
     expect(stopped.session, isNull);
     expect(stopped.earphonesConnected, isTrue);

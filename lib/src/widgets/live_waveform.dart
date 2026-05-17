@@ -40,8 +40,11 @@ class _LiveWaveformState extends State<LiveWaveform>
 
   @override
   Widget build(BuildContext context) {
-    // Standby: gentle idle ripple. Active: driven by mic amplitude.
-    final target = widget.isRecording ? widget.amplitude.clamp(0.0, 1.0) : 0.0;
+    // Waveform target: reduce raw amplitude so it's visible but not overwhelming.
+    // Standby (not recording): zero – completely flat.
+    final target = widget.isRecording
+        ? (widget.amplitude * 0.55).clamp(0.0, 0.85)
+        : 0.0;
 
     // TweenAnimationBuilder provides 80 ms ease-out for visual smoothing
     // without mutating state inside the build callback.
@@ -95,9 +98,8 @@ class _WaveformPainter extends CustomPainter {
     final slotWidth = size.width / _bars;
     final barWidth = (slotWidth * 0.58).clamp(2.0, 7.0);
 
-    // Always-visible baseline pulse so users see the waveform is alive.
-    // Scales from 0.04 (silence) up to 0 as amplitude grows (voice overrides).
-    final baseline = active ? 0.04 * (1 - amplitude.clamp(0, 1)) : 0.0;
+    // Gentle baseline pulse so the waveform never looks frozen.
+    final baseline = active ? 0.028 * (1 - amplitude.clamp(0, 1)) : 0.0;
 
     final paint = Paint()
       ..strokeCap = StrokeCap.round
