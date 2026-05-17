@@ -19,13 +19,18 @@ class RecordingService {
   final AudioRecorder _recorder;
 
   Stream<double> amplitudeStream() {
-    return _recorder.onAmplitudeChanged(const Duration(milliseconds: 90)).map((
+    // Poll at 60 ms for smoother waveform on iOS.
+    return _recorder.onAmplitudeChanged(const Duration(milliseconds: 60)).map((
       amplitude,
     ) {
+      // Use the peak value for instant waveform response.
       final db = math.max(amplitude.current, amplitude.max);
-      if (!db.isFinite || db <= -80) return 0;
-      final linear = ((db + 55) / 45).clamp(0, 1);
-      return math.pow(linear, 0.42).toDouble();
+      // iOS AVAudioRecorder reports silence as ~-160 dBFS.
+      // Map -70 dBFS (near-silence threshold) → 0, 0 dBFS (full scale) → 1.
+      if (!db.isFinite || db <= -70) return 0;
+      final linear = ((db + 70) / 65).clamp(0, 1);
+      // Gentle power curve (0.35) so quiet speech still shows movement.
+      return math.pow(linear, 0.35).toDouble();
     });
   }
 

@@ -428,22 +428,36 @@ class RecordingController extends Notifier<RecordingStatus> {
     _lastCatchphraseReports.clear();
   }
 
-  void _setLiveAmplitude(double amplitude) {
+  DateTime _lastAmplitudeUpdate = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _setLiveAmplitude(double raw) {
     if (!state.isRecording || state.isPaused) return;
-    final boosted = (amplitude * 1.35).clamp(0, 1).toDouble();
-    final next = boosted > state.amplitude
-        ? boosted
-        : (state.amplitude * 0.72 + boosted * 0.28).clamp(0, 1).toDouble();
-    state = state.copyWith(amplitude: next);
+    final incoming = raw.clamp(0.0, 1.0);
+    // Instant attack: new peak always wins immediately.
+    // Slow release: blend down gently when new value is lower.
+    final current = state.amplitude;
+    final next = incoming >= current
+        ? incoming
+        : (current * 0.80 + incoming * 0.20).clamp(0, 1).toDouble();
+    // Only update state when change is visible (>0.5%), avoids unnecessary rebuilds.
+    if ((next - current).abs() > 0.005) {
+      _lastAmplitudeUpdate = DateTime.now();
+      state = state.copyWith(amplitude: next);
+    }
   }
 
   void _startLevelDecay() {
     _levelDecayTimer?.cancel();
-    _levelDecayTimer = Timer.periodic(const Duration(milliseconds: 120), (_) {
-      if (!state.isRecording || state.isPaused || state.amplitude <= 0.02) {
+    // Decay every 80 ms. Only decays when no fresh amplitude arrived in 150 ms.
+    _levelDecayTimer = Timer.periodic(const Duration(milliseconds: 80), (_) {
+      if (!state.isRecording || state.isPaused || state.amplitude <= 0.01) {
         return;
       }
-      state = state.copyWith(amplitude: state.amplitude * 0.86);
+      final stale =
+          DateTime.now().difference(_lastAmplitudeUpdate).inMilliseconds > 150;
+      if (stale) {
+        state = state.copyWith(amplitude: (state.amplitude * 0.88).clamp(0, 1));
+      }
     });
   }
 
