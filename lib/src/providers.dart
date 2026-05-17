@@ -182,12 +182,18 @@ class RecordingController extends Notifier<RecordingStatus> {
 
     if (route.earphonesConnected && !state.isRecording) {
       await _startRecording(route.routeName);
-    } else if (!route.earphonesConnected && state.isRecording) {
+    } else if (!route.earphonesConnected &&
+        state.isRecording &&
+        !state.isManualSession) {
       await stopRecording(reason: 'Earphones disconnected');
     }
   }
 
-  Future<void> _startRecording(String source) async {
+  Future<void> startManualRecording() {
+    return _startRecording('Manual session', manual: true);
+  }
+
+  Future<void> _startRecording(String source, {bool manual = false}) async {
     try {
       await ref.read(foregroundRecordingServiceProvider).start();
       final recording = await ref.read(recordingServiceProvider).start();
@@ -231,7 +237,10 @@ class RecordingController extends Notifier<RecordingStatus> {
         isRecording: true,
         session: session,
         isPaused: false,
-        statusMessage: 'Recording earphone session',
+        isManualSession: manual,
+        statusMessage: manual
+            ? 'Recording manual session'
+            : 'Recording earphone session',
       );
       _startLevelDecay();
     } catch (error) {
@@ -239,6 +248,7 @@ class RecordingController extends Notifier<RecordingStatus> {
       state = state.copyWith(
         isRecording: false,
         isPaused: false,
+        isManualSession: false,
         statusMessage: error.toString(),
       );
     }
@@ -262,7 +272,9 @@ class RecordingController extends Notifier<RecordingStatus> {
     await ref.read(transcriptionServiceProvider).resume();
     state = state.copyWith(
       isPaused: false,
-      statusMessage: 'Recording earphone session',
+      statusMessage: state.isManualSession
+          ? 'Recording manual session'
+          : 'Recording earphone session',
     );
   }
 
@@ -287,6 +299,7 @@ class RecordingController extends Notifier<RecordingStatus> {
     state = state.copyWith(
       isRecording: false,
       isPaused: false,
+      isManualSession: false,
       clearSession: true,
       amplitude: 0,
       liveTranscript: '',

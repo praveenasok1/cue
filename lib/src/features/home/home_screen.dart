@@ -160,6 +160,7 @@ class _RecordingHero extends ConsumerWidget {
             _InputLevelMeter(
               amplitude: status.amplitude,
               active: status.isRecording && !status.isPaused,
+              paused: status.isPaused,
             ),
             if (status.isRecording) ...[
               const SizedBox(height: 14),
@@ -202,6 +203,17 @@ class _RecordingHero extends ConsumerWidget {
                         .stopRecording(reason: 'Stopped by user'),
                   ),
                 ],
+              )
+            else
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.mic_rounded),
+                  label: const Text('Start session'),
+                  onPressed: () => ref
+                      .read(recordingControllerProvider.notifier)
+                      .startManualRecording(),
+                ),
               ),
           ],
         ),
@@ -211,10 +223,15 @@ class _RecordingHero extends ConsumerWidget {
 }
 
 class _InputLevelMeter extends StatelessWidget {
-  const _InputLevelMeter({required this.amplitude, required this.active});
+  const _InputLevelMeter({
+    required this.amplitude,
+    required this.active,
+    required this.paused,
+  });
 
   final double amplitude;
   final bool active;
+  final bool paused;
 
   @override
   Widget build(BuildContext context) {
@@ -235,7 +252,11 @@ class _InputLevelMeter extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          active ? 'Mic input ${(value * 100).round()}%' : 'Mic input paused',
+          active
+              ? 'Mic input ${(value * 100).round()}%'
+              : paused
+              ? 'Mic input paused'
+              : 'Mic input inactive - start a session to enable waveform',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),

@@ -118,6 +118,7 @@ class RecordingStatus {
     required this.isRecording,
     required this.earphonesConnected,
     this.isPaused = false,
+    this.isManualSession = false,
     this.session,
     this.amplitude = 0,
     this.liveTranscript = '',
@@ -127,6 +128,7 @@ class RecordingStatus {
   final bool isRecording;
   final bool earphonesConnected;
   final bool isPaused;
+  final bool isManualSession;
   final RecordingSession? session;
   final double amplitude;
   final String liveTranscript;
@@ -136,6 +138,7 @@ class RecordingStatus {
     bool? isRecording,
     bool? earphonesConnected,
     bool? isPaused,
+    bool? isManualSession,
     RecordingSession? session,
     bool clearSession = false,
     double? amplitude,
@@ -146,6 +149,7 @@ class RecordingStatus {
       isRecording: isRecording ?? this.isRecording,
       earphonesConnected: earphonesConnected ?? this.earphonesConnected,
       isPaused: isPaused ?? this.isPaused,
+      isManualSession: isManualSession ?? this.isManualSession,
       session: clearSession ? null : session ?? this.session,
       amplitude: amplitude ?? this.amplitude,
       liveTranscript: liveTranscript ?? this.liveTranscript,
