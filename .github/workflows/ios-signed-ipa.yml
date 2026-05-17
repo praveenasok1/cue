@@ -1,6 +1,13 @@
 name: iOS Signed IPA
 
 on:
+  push:
+    branches:
+      - main
+      - 'cursor/**'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       bundle_id:
@@ -21,8 +28,17 @@ on:
         default: 'Apple Development'
 
 jobs:
+  validate-workflow:
+    name: Validate signed IPA workflow
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain manual signing
+        run: echo "Signed IPA builds run only from workflow_dispatch with Apple signing secrets."
+
   build-signed-ipa:
     name: Build signed iOS IPA
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     timeout-minutes: 45
     permissions:
