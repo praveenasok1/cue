@@ -9,6 +9,7 @@ import UIKit
   private let routeEventsChannelName = "cue/audio_route_events"
   private var routeEventSink: FlutterEventSink?
   private var routeChannelsAttached = false
+  private var pendingDisconnectCheck: DispatchWorkItem?
 
   override func application(
     _ application: UIApplication,
@@ -70,23 +71,13 @@ import UIKit
 
     switch reason {
     case .oldDeviceUnavailable:
-      // Earphone physically removed or AirPods taken out of ear –
-      // send immediately so Dart stops recording without delay.
-      DispatchQueue.main.async { [weak self] in
-        self?.routeEventSink?(self?.fallbackRouteState(definitiveDisconnect: true) ?? [
-          "earphonesConnected": false,
-          "earphoneMicActive": false,
-          "earphoneMicAvailable": false,
-          "phoneMicActive": false,
-          "definitiveDisconnect": true,
-          "routeName": "Device speaker",
-          "inputName": "Phone microphone",
-        ])
-      }
+      scheduleDisconnectVerification()
     case .newDeviceAvailable:
       // Earphone plugged in or AirPods placed in ear.
       DispatchQueue.main.async { [weak self] in
         guard let self else { return }
+        self.pendingDisconnectCheck?.cancel()
+        self.pendingDisconnectCheck = nil
         self.prepareEarphoneMic()
         self.routeEventSink?(self.currentRouteState())
       }
@@ -104,6 +95,25 @@ import UIKit
       guard let self else { return }
       self.routeEventSink?(self.currentRouteState())
     }
+  }
+
+  private func scheduleDisconnectVerification() {
+    pendingDisconnectCheck?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.prepareEarphoneMic()
+      let state = self.currentRouteState()
+      let micAvailable = state["earphoneMicAvailable"] as? Bool ?? false
+      let earphonesConnected = state["earphonesConnected"] as? Bool ?? false
+      if micAvailable || earphonesConnected {
+        self.routeEventSink?(state)
+      } else {
+        self.routeEventSink?(self.fallbackRouteState(definitiveDisconnect: true))
+      }
+      self.pendingDisconnectCheck = nil
+    }
+    pendingDisconnectCheck = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2), execute: work)
   }
 
   // MARK: - Flutter channels
