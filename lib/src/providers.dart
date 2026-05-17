@@ -149,10 +149,13 @@ final recordingControllerProvider =
     );
 
 class RecordingController extends Notifier<RecordingStatus> {
+  static const _catchphraseCooldown = Duration(seconds: 45);
+
   StreamSubscription<double>? _amplitudeSubscription;
   StreamSubscription<double>? _speechLevelSubscription;
   StreamSubscription<TranscriptionChunk>? _transcriptionSubscription;
   Timer? _levelDecayTimer;
+  final Map<int, DateTime> _lastCatchphraseReports = {};
 
   @override
   RecordingStatus build() {
@@ -229,6 +232,7 @@ class RecordingController extends Notifier<RecordingStatus> {
               state = state.copyWith(liveTranscript: '');
             } else {
               state = state.copyWith(liveTranscript: chunk.text);
+              unawaited(_detectCatchphrases(chunk.text));
             }
           });
       await ref.read(transcriptionServiceProvider).start();
@@ -238,6 +242,9 @@ class RecordingController extends Notifier<RecordingStatus> {
         session: session,
         isPaused: false,
         isManualSession: manual,
+        catchphraseDetectionActive: true,
+        catchphraseReportCount: 0,
+        clearLastCatchphraseLabel: true,
         statusMessage: manual
             ? 'Recording manual session'
             : 'Recording earphone session',
@@ -249,6 +256,7 @@ class RecordingController extends Notifier<RecordingStatus> {
         isRecording: false,
         isPaused: false,
         isManualSession: false,
+        catchphraseDetectionActive: false,
         statusMessage: error.toString(),
       );
     }
@@ -262,6 +270,7 @@ class RecordingController extends Notifier<RecordingStatus> {
       isPaused: true,
       amplitude: 0,
       liveTranscript: '',
+      catchphraseDetectionActive: false,
       statusMessage: 'Recording paused',
     );
   }
@@ -272,6 +281,7 @@ class RecordingController extends Notifier<RecordingStatus> {
     await ref.read(transcriptionServiceProvider).resume();
     state = state.copyWith(
       isPaused: false,
+      catchphraseDetectionActive: true,
       statusMessage: state.isManualSession
           ? 'Recording manual session'
           : 'Recording earphone session',
@@ -300,11 +310,14 @@ class RecordingController extends Notifier<RecordingStatus> {
       isRecording: false,
       isPaused: false,
       isManualSession: false,
+      catchphraseDetectionActive: false,
       clearSession: true,
       amplitude: 0,
       liveTranscript: '',
+      clearLastCatchphraseLabel: true,
       statusMessage: reason,
     );
+    _lastCatchphraseReports.clear();
   }
 
   void _setLiveAmplitude(double amplitude) {
@@ -333,25 +346,48 @@ class RecordingController extends Notifier<RecordingStatus> {
   }
 
   Future<void> _detectCatchphrases(String text) async {
+    if (!state.isRecording || state.isPaused) return;
+    final normalizedText = text.trim();
+    if (normalizedText.isEmpty) return;
+
     final database = ref.read(databaseProvider);
     final catchphrases = await database.getCatchphrases();
     if (catchphrases.isEmpty) return;
 
-    final location = await ref.read(locationServiceProvider).currentLocation();
+    final now = DateTime.now();
+    final matches = <Catchphrase>[];
     for (final catchphrase in catchphrases) {
       final expression = RegExp(
         '(^|[^A-Za-z0-9_])${RegExp.escape(catchphrase.phrase)}'
         r'(?=$|[^A-Za-z0-9_])',
         caseSensitive: false,
       );
-      if (expression.hasMatch(text)) {
-        await database.logCatchphraseHit(
-          catchphrase: catchphrase,
-          context: text,
-          latitude: location?.latitude,
-          longitude: location?.longitude,
-        );
+      final lastReport = _lastCatchphraseReports[catchphrase.id];
+      final recentlyReported =
+          lastReport != null &&
+          now.difference(lastReport) < _catchphraseCooldown;
+      if (!recentlyReported && expression.hasMatch(normalizedText)) {
+        matches.add(catchphrase);
       }
+    }
+    if (matches.isEmpty) return;
+
+    final location = await ref.read(locationServiceProvider).currentLocation();
+    if (!state.isRecording || state.isPaused) return;
+    for (final catchphrase in matches) {
+      await database.logCatchphraseHit(
+        catchphrase: catchphrase,
+        context: normalizedText,
+        latitude: location?.latitude,
+        longitude: location?.longitude,
+      );
+      _lastCatchphraseReports[catchphrase.id] = DateTime.now();
+      state = state.copyWith(
+        catchphraseDetectionActive: true,
+        catchphraseReportCount: state.catchphraseReportCount + 1,
+        lastCatchphraseLabel: catchphrase.phrase,
+        statusMessage: 'Catchphrase reported: ${catchphrase.phrase}',
+      );
     }
   }
 }

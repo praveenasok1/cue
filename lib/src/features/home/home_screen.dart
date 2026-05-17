@@ -162,6 +162,8 @@ class _RecordingHero extends ConsumerWidget {
               active: status.isRecording && !status.isPaused,
               paused: status.isPaused,
             ),
+            const SizedBox(height: 10),
+            _CatchphraseDetectionStatus(status: status),
             if (status.isRecording) ...[
               const SizedBox(height: 14),
               AnimatedSwitcher(
@@ -262,6 +264,55 @@ class _InputLevelMeter extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CatchphraseDetectionStatus extends StatelessWidget {
+  const _CatchphraseDetectionStatus({required this.status});
+
+  final RecordingStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = status.catchphraseDetectionActive && !status.isPaused;
+    final colors = Theme.of(context).colorScheme;
+    final label = status.lastCatchphraseLabel;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: active
+            ? CueColors.positive.withValues(alpha: 0.10)
+            : colors.surfaceContainerHighest.withValues(alpha: 0.38),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            active ? Icons.radar_rounded : Icons.radar_outlined,
+            color: active ? CueColors.positive : colors.onSurfaceVariant,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              !status.isRecording
+                  ? 'Catchphrase reporting inactive'
+                  : active
+                  ? label == null
+                        ? 'Catchphrase reporting active'
+                        : 'Reported "$label" (${status.catchphraseReportCount})'
+                  : 'Catchphrase reporting paused',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: active ? CueColors.positive : colors.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

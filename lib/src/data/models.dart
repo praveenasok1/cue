@@ -122,6 +122,9 @@ class RecordingStatus {
     this.session,
     this.amplitude = 0,
     this.liveTranscript = '',
+    this.catchphraseDetectionActive = false,
+    this.catchphraseReportCount = 0,
+    this.lastCatchphraseLabel,
     this.statusMessage = 'Waiting for earphones',
   });
 
@@ -132,6 +135,9 @@ class RecordingStatus {
   final RecordingSession? session;
   final double amplitude;
   final String liveTranscript;
+  final bool catchphraseDetectionActive;
+  final int catchphraseReportCount;
+  final String? lastCatchphraseLabel;
   final String statusMessage;
 
   RecordingStatus copyWith({
@@ -143,6 +149,10 @@ class RecordingStatus {
     bool clearSession = false,
     double? amplitude,
     String? liveTranscript,
+    bool? catchphraseDetectionActive,
+    int? catchphraseReportCount,
+    String? lastCatchphraseLabel,
+    bool clearLastCatchphraseLabel = false,
     String? statusMessage,
   }) {
     return RecordingStatus(
@@ -153,6 +163,13 @@ class RecordingStatus {
       session: clearSession ? null : session ?? this.session,
       amplitude: amplitude ?? this.amplitude,
       liveTranscript: liveTranscript ?? this.liveTranscript,
+      catchphraseDetectionActive:
+          catchphraseDetectionActive ?? this.catchphraseDetectionActive,
+      catchphraseReportCount:
+          catchphraseReportCount ?? this.catchphraseReportCount,
+      lastCatchphraseLabel: clearLastCatchphraseLabel
+          ? null
+          : lastCatchphraseLabel ?? this.lastCatchphraseLabel,
       statusMessage: statusMessage ?? this.statusMessage,
     );
   }
