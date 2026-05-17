@@ -38,19 +38,18 @@ final transcriptionServiceProvider = Provider<TranscriptionService>((ref) {
   return service;
 });
 
-final foregroundRecordingServiceProvider =
-    Provider<ForegroundRecordingService>((ref) {
-  return ForegroundRecordingService();
-});
+final foregroundRecordingServiceProvider = Provider<ForegroundRecordingService>(
+  (ref) {
+    return ForegroundRecordingService();
+  },
+);
 
 final locationServiceProvider = Provider<LocationService>((ref) {
   return LocationService();
 });
 
 final themeModeControllerProvider =
-    NotifierProvider<ThemeModeController, ThemeMode>(
-  ThemeModeController.new,
-);
+    NotifierProvider<ThemeModeController, ThemeMode>(ThemeModeController.new);
 
 class ThemeModeController extends Notifier<ThemeMode> {
   static const _themeModeKey = 'cue.themeMode';
@@ -87,13 +86,11 @@ final recentHitsProvider = StreamProvider<List<CatchphraseHit>>((ref) {
 
 final pendingCatchphrasePromptProvider =
     StreamProvider<PendingCatchphrasePrompt?>((ref) {
-  return ref.watch(databaseProvider).watchPendingPrompt();
-});
+      return ref.watch(databaseProvider).watchPendingPrompt();
+    });
 
 final catchphraseControllerProvider =
-    NotifierProvider<CatchphraseController, void>(
-  CatchphraseController.new,
-);
+    NotifierProvider<CatchphraseController, void>(CatchphraseController.new);
 
 class CatchphraseController extends Notifier<void> {
   @override
@@ -105,7 +102,9 @@ class CatchphraseController extends Notifier<void> {
     required Color color,
     String? notes,
   }) {
-    return ref.read(databaseProvider).addCatchphrase(
+    return ref
+        .read(databaseProvider)
+        .addCatchphrase(
           phrase: phrase,
           polarity: polarity,
           color: color,
@@ -123,26 +122,23 @@ class CatchphraseController extends Notifier<void> {
 }
 
 final transcriptControllerProvider =
-    NotifierProvider<TranscriptController, void>(
-  TranscriptController.new,
-);
+    NotifierProvider<TranscriptController, void>(TranscriptController.new);
 
 class TranscriptController extends Notifier<void> {
   @override
   void build() {}
 
   Future<void> saveToday(String text) {
-    return ref.read(databaseProvider).replaceDailyTranscript(
-          DateTime.now(),
-          text,
-        );
+    return ref
+        .read(databaseProvider)
+        .replaceDailyTranscript(DateTime.now(), text);
   }
 }
 
 final recordingControllerProvider =
     NotifierProvider<RecordingController, RecordingStatus>(
-  RecordingController.new,
-);
+      RecordingController.new,
+    );
 
 class RecordingController extends Notifier<RecordingStatus> {
   StreamSubscription<double>? _amplitudeSubscription;
@@ -150,25 +146,18 @@ class RecordingController extends Notifier<RecordingStatus> {
 
   @override
   RecordingStatus build() {
-    ref.listen<AsyncValue<AudioRouteState>>(
-      audioRouteProvider,
-      (_, next) {
-        next.whenData((route) {
-          unawaited(_handleEarphoneState(route));
-        });
-      },
-      fireImmediately: true,
-    );
+    ref.listen<AsyncValue<AudioRouteState>>(audioRouteProvider, (_, next) {
+      next.whenData((route) {
+        unawaited(_handleEarphoneState(route));
+      });
+    }, fireImmediately: true);
 
     ref.onDispose(() {
       _amplitudeSubscription?.cancel();
       _transcriptionSubscription?.cancel();
     });
 
-    return const RecordingStatus(
-      isRecording: false,
-      earphonesConnected: false,
-    );
+    return const RecordingStatus(isRecording: false, earphonesConnected: false);
   }
 
   Future<void> _handleEarphoneState(AudioRouteState route) async {
@@ -190,28 +179,27 @@ class RecordingController extends Notifier<RecordingStatus> {
     try {
       await ref.read(foregroundRecordingServiceProvider).start();
       final recording = await ref.read(recordingServiceProvider).start();
-      final session = await ref.read(databaseProvider).startSession(
-            source: source,
-            audioPath: recording.path,
-          );
+      final session = await ref
+          .read(databaseProvider)
+          .startSession(source: source, audioPath: recording.path);
 
       _amplitudeSubscription?.cancel();
-      _amplitudeSubscription =
-          ref.read(recordingServiceProvider).amplitudeStream().listen(
-        (amplitude) {
-          state = state.copyWith(amplitude: amplitude);
-        },
-      );
+      _amplitudeSubscription = ref
+          .read(recordingServiceProvider)
+          .amplitudeStream()
+          .listen((amplitude) {
+            state = state.copyWith(amplitude: amplitude);
+          });
 
       _transcriptionSubscription?.cancel();
-      _transcriptionSubscription =
-          ref.read(transcriptionServiceProvider).chunks.listen(
-        (chunk) {
-          if (chunk.isFinal) {
-            unawaited(_persistTranscriptChunk(chunk.text));
-          }
-        },
-      );
+      _transcriptionSubscription = ref
+          .read(transcriptionServiceProvider)
+          .chunks
+          .listen((chunk) {
+            if (chunk.isFinal) {
+              unawaited(_persistTranscriptChunk(chunk.text));
+            }
+          });
       await ref.read(transcriptionServiceProvider).start();
 
       state = state.copyWith(
@@ -261,8 +249,7 @@ class RecordingController extends Notifier<RecordingStatus> {
     final catchphrases = await database.getCatchphrases();
     if (catchphrases.isEmpty) return;
 
-    final location =
-        await ref.read(locationServiceProvider).currentLocation();
+    final location = await ref.read(locationServiceProvider).currentLocation();
     for (final catchphrase in catchphrases) {
       final expression = RegExp(
         '(^|[^A-Za-z0-9_])${RegExp.escape(catchphrase.phrase)}'

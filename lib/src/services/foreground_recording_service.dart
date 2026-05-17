@@ -43,7 +43,8 @@ class CueForegroundTaskHandler extends TaskHandler {
   void onRepeatEvent(DateTime timestamp) {
     FlutterForegroundTask.updateService(
       notificationTitle: 'CUE is recording',
-      notificationText: 'Earphone session active since ${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}',
+      notificationText:
+          'Earphone session active since ${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}',
     );
   }
 

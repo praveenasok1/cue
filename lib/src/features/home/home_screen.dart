@@ -22,7 +22,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ref.listen<AsyncValue<PendingCatchphrasePrompt?>>(
       pendingCatchphrasePromptProvider,
       (_, next) {
-        final prompt = next.valueOrNull;
+        final prompt = next.value;
         if (prompt != null && prompt.hit.id != _shownPromptId) {
           _shownPromptId = prompt.hit.id;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -137,16 +137,15 @@ class _RecordingHero extends ConsumerWidget {
                   child: Text(
                     status.isRecording ? 'Recording live' : 'Standby',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 Icon(
                   status.earphonesConnected
                       ? Icons.headphones_rounded
                       : Icons.headset_off_rounded,
-                  color:
-                      status.earphonesConnected ? CueColors.primary : null,
+                  color: status.earphonesConnected ? CueColors.primary : null,
                 ),
               ],
             ),
@@ -214,7 +213,9 @@ class _TranscriptPanelState extends ConsumerState<_TranscriptPanel> {
   @override
   Widget build(BuildContext context) {
     final transcript = ref.watch(todayTranscriptProvider);
-    final catchphrases = ref.watch(catchphrasesProvider).valueOrNull ?? [];
+    final catchphrases = ref
+        .watch(catchphrasesProvider)
+        .maybeWhen(data: (items) => items, orElse: () => <Catchphrase>[]);
     final search = _searchController.text.trim();
 
     return Card(
@@ -314,18 +315,18 @@ class _HighlightedTranscript extends StatelessWidget {
     final spans = _buildSpans(context);
     final searchCount = search.isEmpty
         ? 0
-        : RegExp(RegExp.escape(search), caseSensitive: false)
-            .allMatches(text)
-            .length;
+        : RegExp(
+            RegExp.escape(search),
+            caseSensitive: false,
+          ).allMatches(text).length;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.35),
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -335,9 +336,9 @@ class _HighlightedTranscript extends StatelessWidget {
             children: [
               Text(
                 'Highlighted view',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
               const Spacer(),
               if (search.isNotEmpty)
@@ -352,9 +353,9 @@ class _HighlightedTranscript extends StatelessWidget {
           const SizedBox(height: 12),
           SelectableText.rich(
             TextSpan(
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    height: 1.5,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(height: 1.5),
               children: spans.isEmpty
                   ? const [TextSpan(text: 'No transcript yet.')]
                   : spans,
@@ -374,21 +375,25 @@ class _HighlightedTranscript extends StatelessWidget {
         caseSensitive: false,
       );
       for (final match in expression.allMatches(text)) {
-        matches.add(_TextHighlight(
-          match.start,
-          match.end,
-          catchphrase.color.withValues(alpha: 0.35),
-        ));
+        matches.add(
+          _TextHighlight(
+            match.start,
+            match.end,
+            catchphrase.color.withValues(alpha: 0.35),
+          ),
+        );
       }
     }
     if (search.isNotEmpty) {
       final expression = RegExp(RegExp.escape(search), caseSensitive: false);
       for (final match in expression.allMatches(text)) {
-        matches.add(_TextHighlight(
-          match.start,
-          match.end,
-          Colors.amber.withValues(alpha: 0.45),
-        ));
+        matches.add(
+          _TextHighlight(
+            match.start,
+            match.end,
+            Colors.amber.withValues(alpha: 0.45),
+          ),
+        );
       }
     }
 
@@ -400,13 +405,15 @@ class _HighlightedTranscript extends StatelessWidget {
       if (match.start > index) {
         spans.add(TextSpan(text: text.substring(index, match.start)));
       }
-      spans.add(TextSpan(
-        text: text.substring(match.start, match.end),
-        style: TextStyle(
-          backgroundColor: match.color,
-          fontWeight: FontWeight.w800,
+      spans.add(
+        TextSpan(
+          text: text.substring(match.start, match.end),
+          style: TextStyle(
+            backgroundColor: match.color,
+            fontWeight: FontWeight.w800,
+          ),
         ),
-      ));
+      );
       index = match.end;
     }
     if (index < text.length) spans.add(TextSpan(text: text.substring(index)));
@@ -535,7 +542,7 @@ class _RecentHitsPanel extends ConsumerWidget {
     final location = hit.latitude == null || hit.longitude == null
         ? 'No location'
         : '${hit.latitude!.toStringAsFixed(4)}, '
-            '${hit.longitude!.toStringAsFixed(4)}';
+              '${hit.longitude!.toStringAsFixed(4)}';
     return '$time - $mood - $location';
   }
 }
@@ -571,9 +578,9 @@ class _SectionHeader extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 2),
               Text(
@@ -605,9 +612,9 @@ class _MoodPicker extends StatelessWidget {
         children: [
           Text(
             'How did you feel?',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 8),
           Text(
@@ -641,41 +648,41 @@ Future<void> _showSettings(BuildContext context) {
     showDragHandle: true,
     builder: (context) => Consumer(
       builder: (context, ref, _) {
-      final themeMode = ref.watch(themeModeControllerProvider);
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const _SectionHeader(
-              title: 'Settings',
-              subtitle: 'CUE starts in light mode by default.',
-              icon: Icons.settings_rounded,
-            ),
-            const SizedBox(height: 16),
-            SegmentedButton<ThemeMode>(
-              segments: const [
-                ButtonSegment(
-                  value: ThemeMode.light,
-                  label: Text('Light'),
-                  icon: Icon(Icons.light_mode_rounded),
-                ),
-                ButtonSegment(
-                  value: ThemeMode.dark,
-                  label: Text('Dark'),
-                  icon: Icon(Icons.dark_mode_rounded),
-                ),
-              ],
-              selected: {themeMode},
-              onSelectionChanged: (selection) {
-                ref
-                    .read(themeModeControllerProvider.notifier)
-                    .setThemeMode(selection.single);
-              },
-            ),
-          ],
-        ),
-      );
+        final themeMode = ref.watch(themeModeControllerProvider);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(22, 0, 22, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const _SectionHeader(
+                title: 'Settings',
+                subtitle: 'CUE starts in light mode by default.',
+                icon: Icons.settings_rounded,
+              ),
+              const SizedBox(height: 16),
+              SegmentedButton<ThemeMode>(
+                segments: const [
+                  ButtonSegment(
+                    value: ThemeMode.light,
+                    label: Text('Light'),
+                    icon: Icon(Icons.light_mode_rounded),
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.dark,
+                    label: Text('Dark'),
+                    icon: Icon(Icons.dark_mode_rounded),
+                  ),
+                ],
+                selected: {themeMode},
+                onSelectionChanged: (selection) {
+                  ref
+                      .read(themeModeControllerProvider.notifier)
+                      .setThemeMode(selection.single);
+                },
+              ),
+            ],
+          ),
+        );
       },
     ),
   );
@@ -813,7 +820,9 @@ class _CatchphraseFormState extends State<_CatchphraseForm> {
 
   Future<void> _save() async {
     try {
-      await widget.ref.read(catchphraseControllerProvider.notifier).add(
+      await widget.ref
+          .read(catchphraseControllerProvider.notifier)
+          .add(
             phrase: _phraseController.text,
             polarity: _polarity,
             color: _color,

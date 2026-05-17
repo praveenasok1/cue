@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' show Color;
 
 import 'models.dart';
 
@@ -18,12 +18,12 @@ class CueDatabase extends GeneratedDatabase {
   int get schemaVersion => 1;
 
   @override
-  Iterable<TableInfo<Table, Object?>> get allTables => const [];
+  Iterable<TableInfo<Table, dynamic>> get allTables => const [];
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) async {
-          await customStatement('''
+    onCreate: (m) async {
+      await customStatement('''
 CREATE TABLE catchphrases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   phrase TEXT NOT NULL UNIQUE,
@@ -33,14 +33,14 @@ CREATE TABLE catchphrases (
   created_at INTEGER NOT NULL
 );
 ''');
-          await customStatement('''
+      await customStatement('''
 CREATE TABLE daily_transcripts (
   day TEXT PRIMARY KEY,
   text TEXT NOT NULL DEFAULT '',
   updated_at INTEGER NOT NULL
 );
 ''');
-          await customStatement('''
+      await customStatement('''
 CREATE TABLE recording_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   started_at INTEGER NOT NULL,
@@ -49,7 +49,7 @@ CREATE TABLE recording_sessions (
   source TEXT NOT NULL
 );
 ''');
-          await customStatement('''
+      await customStatement('''
 CREATE TABLE catchphrase_hits (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   catchphrase_id INTEGER NOT NULL REFERENCES catchphrases(id)
@@ -63,18 +63,15 @@ CREATE TABLE catchphrase_hits (
   acknowledged INTEGER NOT NULL DEFAULT 0
 );
 ''');
-          await customStatement(
-            'CREATE INDEX catchphrase_hits_spoken_at '
-            'ON catchphrase_hits(spoken_at);',
-          );
-        },
+      await customStatement(
+        'CREATE INDEX catchphrase_hits_spoken_at '
+        'ON catchphrase_hits(spoken_at);',
       );
+    },
+  );
 
   Stream<List<Catchphrase>> watchCatchphrases() {
-    return _watch(
-      _catchphrasesChanged.stream,
-      getCatchphrases,
-    );
+    return _watch(_catchphrasesChanged.stream, getCatchphrases);
   }
 
   Future<List<Catchphrase>> getCatchphrases() async {
@@ -121,10 +118,9 @@ VALUES (?, ?, ?, ?, ?);
   }
 
   Future<void> deleteCatchphrase(int id) async {
-    await customStatement(
-      'DELETE FROM catchphrases WHERE id = ?;',
-      [Variable.withInt(id)],
-    );
+    await customStatement('DELETE FROM catchphrases WHERE id = ?;', [
+      Variable.withInt(id),
+    ]);
     _catchphrasesChanged.add(null);
     _hitsChanged.add(null);
   }
@@ -134,10 +130,7 @@ VALUES (?, ?, ?, ?, ?);
   }
 
   Stream<DailyTranscript> watchDailyTranscript(DateTime day) {
-    return _watch(
-      _transcriptChanged.stream,
-      () => getDailyTranscript(day),
-    );
+    return _watch(_transcriptChanged.stream, () => getDailyTranscript(day));
   }
 
   Future<DailyTranscript> getDailyTranscript(DateTime day) async {
@@ -179,10 +172,7 @@ ON CONFLICT(day) DO UPDATE SET
   }
 
   Stream<List<CatchphraseHit>> watchRecentHits({int limit = 25}) {
-    return _watch(
-      _hitsChanged.stream,
-      () => getRecentHits(limit: limit),
-    );
+    return _watch(_hitsChanged.stream, () => getRecentHits(limit: limit));
   }
 
   Future<List<CatchphraseHit>> getRecentHits({int limit = 25}) async {
@@ -198,10 +188,7 @@ LIMIT ?;
   }
 
   Stream<PendingCatchphrasePrompt?> watchPendingPrompt() {
-    return _watch(
-      _hitsChanged.stream,
-      getPendingPrompt,
-    );
+    return _watch(_hitsChanged.stream, getPendingPrompt);
   }
 
   Future<PendingCatchphrasePrompt?> getPendingPrompt() async {
@@ -311,7 +298,9 @@ VALUES (?, ?, ?);
 ''',
       [
         Variable.withInt(now.millisecondsSinceEpoch),
-        audioPath == null ? const Variable(null) : Variable.withString(audioPath),
+        audioPath == null
+            ? const Variable(null)
+            : Variable.withString(audioPath),
         Variable.withString(source),
       ],
     );
@@ -347,10 +336,7 @@ WHERE id = ? AND ended_at IS NULL;
     return row.read<int>('id');
   }
 
-  Stream<T> _watch<T>(
-    Stream<void> changed,
-    Future<T> Function() load,
-  ) async* {
+  Stream<T> _watch<T>(Stream<void> changed, Future<T> Function() load) async* {
     yield await load();
     await for (final _ in changed) {
       yield await load();

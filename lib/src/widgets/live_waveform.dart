@@ -82,7 +82,9 @@ class _WaveformPainter extends CustomPainter {
       final x = (i + 0.5) * size.width / bars;
       final wave = math.sin((i / bars * math.pi * 3.5) + phase * math.pi * 2);
       final envelope = math.sin(i / bars * math.pi).abs();
-      final height = 18 + (size.height * 0.62 * envelope * amplitude) +
+      final height =
+          18 +
+          (size.height * 0.62 * envelope * amplitude) +
           (wave.abs() * 46 * (amplitude + 0.12));
       final opacity = 0.22 + (envelope * 0.68);
       paint.color = color.withValues(alpha: opacity.clamp(0, 1).toDouble());

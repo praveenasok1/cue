@@ -4,10 +4,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 class TranscriptionChunk {
-  const TranscriptionChunk({
-    required this.text,
-    required this.isFinal,
-  });
+  const TranscriptionChunk({required this.text, required this.isFinal});
 
   final String text;
   final bool isFinal;
@@ -15,7 +12,7 @@ class TranscriptionChunk {
 
 class TranscriptionService {
   TranscriptionService({SpeechToText? speechToText})
-      : _speechToText = speechToText ?? SpeechToText();
+    : _speechToText = speechToText ?? SpeechToText();
 
   final SpeechToText _speechToText;
   final _chunks = StreamController<TranscriptionChunk>.broadcast();
@@ -25,10 +22,12 @@ class TranscriptionService {
   Future<void> start() async {
     final available = await _speechToText.initialize(
       onError: (error) {
-        _chunks.add(TranscriptionChunk(
-          text: 'Speech recognition error: ${error.errorMsg}',
-          isFinal: true,
-        ));
+        _chunks.add(
+          TranscriptionChunk(
+            text: 'Speech recognition error: ${error.errorMsg}',
+            isFinal: true,
+          ),
+        );
       },
     );
     if (!available) {
@@ -36,9 +35,11 @@ class TranscriptionService {
     }
 
     await _speechToText.listen(
-      listenMode: ListenMode.dictation,
-      partialResults: true,
-      cancelOnError: false,
+      listenOptions: SpeechListenOptions(
+        listenMode: ListenMode.dictation,
+        partialResults: true,
+        cancelOnError: false,
+      ),
       onResult: _handleResult,
     );
   }
@@ -55,9 +56,6 @@ class TranscriptionService {
   void _handleResult(SpeechRecognitionResult result) {
     final text = result.recognizedWords.trim();
     if (text.isEmpty) return;
-    _chunks.add(TranscriptionChunk(
-      text: text,
-      isFinal: result.finalResult,
-    ));
+    _chunks.add(TranscriptionChunk(text: text, isFinal: result.finalResult));
   }
 }

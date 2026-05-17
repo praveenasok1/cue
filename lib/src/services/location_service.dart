@@ -1,10 +1,7 @@
 import 'package:geolocator/geolocator.dart';
 
 class CueLocation {
-  const CueLocation({
-    required this.latitude,
-    required this.longitude,
-  });
+  const CueLocation({required this.latitude, required this.longitude});
 
   final double latitude;
   final double longitude;

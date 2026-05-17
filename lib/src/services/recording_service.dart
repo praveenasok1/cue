@@ -13,17 +13,17 @@ class RecordingStartResult {
 
 class RecordingService {
   RecordingService({AudioRecorder? recorder})
-      : _recorder = recorder ?? AudioRecorder();
+    : _recorder = recorder ?? AudioRecorder();
 
   final AudioRecorder _recorder;
 
   Stream<double> amplitudeStream() {
-    return _recorder.onAmplitudeChanged(const Duration(milliseconds: 90)).map(
-      (amplitude) {
-        final normalized = ((amplitude.current + 60) / 60).clamp(0, 1);
-        return normalized.toDouble();
-      },
-    );
+    return _recorder.onAmplitudeChanged(const Duration(milliseconds: 90)).map((
+      amplitude,
+    ) {
+      final normalized = ((amplitude.current + 60) / 60).clamp(0, 1);
+      return normalized.toDouble();
+    });
   }
 
   Future<RecordingStartResult> start() async {
