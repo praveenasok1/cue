@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/models.dart';
@@ -82,6 +83,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
           children: const [
             _RecordingHero(),
+            SizedBox(height: 18),
+            _RecordingsPanel(),
             SizedBox(height: 18),
             _TranscriptPanel(),
             SizedBox(height: 18),
@@ -324,6 +327,150 @@ class _LiveBubble extends StatelessWidget {
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.35),
       ),
     );
+  }
+}
+
+// ═══════════════════════════════════════════════ Audio playback ═══════════════
+
+class _AudioPlayButton extends StatefulWidget {
+  const _AudioPlayButton({required this.path, this.label = 'Play'});
+
+  final String? path;
+  final String label;
+
+  @override
+  State<_AudioPlayButton> createState() => _AudioPlayButtonState();
+}
+
+class _AudioPlayButtonState extends State<_AudioPlayButton> {
+  late final AudioPlayer _player;
+  bool _busy = false;
+  bool _playing = false;
+  String? _loadedPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _player = AudioPlayer();
+    _player.playerStateStream.listen((state) {
+      if (!mounted) return;
+      setState(() => _playing = state.playing);
+      if (state.processingState == ProcessingState.completed) {
+        unawaited(_player.seek(Duration.zero));
+        unawaited(_player.pause());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_player.dispose());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final path = widget.path;
+    final enabled = path != null && path.trim().isNotEmpty && !_busy;
+    return TextButton.icon(
+      icon: Icon(_playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
+      label: Text(_playing ? 'Pause' : widget.label),
+      onPressed: enabled ? () => unawaited(_toggle(path)) : null,
+    );
+  }
+
+  Future<void> _toggle(String path) async {
+    setState(() => _busy = true);
+    try {
+      if (_playing) {
+        await _player.pause();
+      } else {
+        if (_loadedPath != path) {
+          await _player.setFilePath(path);
+          _loadedPath = path;
+        }
+        await _player.play();
+      }
+    } on Exception catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Playback failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════ Recordings ═══════════════════
+
+class _RecordingsPanel extends ConsumerWidget {
+  const _RecordingsPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sessions = ref.watch(recentRecordingSessionsProvider);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SectionHeader(
+              icon: Icons.graphic_eq_rounded,
+              title: 'Recordings',
+              subtitle: 'Playback recent earphone sessions',
+            ),
+            const SizedBox(height: 12),
+            sessions.when(
+              data: (items) => items.isEmpty
+                  ? const Text('No saved recordings yet.')
+                  : Column(
+                      children: items
+                          .map((session) => _RecordingRow(session: session))
+                          .toList(),
+                    ),
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Error: $e'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecordingRow extends StatelessWidget {
+  const _RecordingRow({required this.session});
+
+  final RecordingSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final endedAt = session.endedAt;
+    final duration = endedAt == null
+        ? 'Active'
+        : _formatDuration(endedAt.difference(session.startedAt));
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const CircleAvatar(
+        backgroundColor: CueColors.primary,
+        foregroundColor: Colors.white,
+        child: Icon(Icons.mic_rounded, size: 18),
+      ),
+      title: Text(
+        DateFormat.yMMMd().add_jm().format(session.startedAt),
+        style: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+      subtitle: Text('${session.source} · $duration'),
+      trailing: _AudioPlayButton(path: session.audioPath, label: 'Play'),
+    );
+  }
+
+  String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 }
 
@@ -589,6 +736,7 @@ class _CatchphraseStatsPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final stats = ref.watch(todayCatchphraseStatsProvider);
+    final catchphrases = ref.watch(catchphrasesProvider);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -601,14 +749,32 @@ class _CatchphraseStatsPanel extends ConsumerWidget {
               subtitle: "Today's occurrences — tap count for details",
             ),
             const SizedBox(height: 12),
-            stats.when(
-              data: (items) => items.isEmpty
-                  ? const Text('No catchphrases heard yet today.')
-                  : Column(
-                      children: items
-                          .map((stat) => _StatRow(stat: stat))
-                          .toList(),
-                    ),
+            catchphrases.when(
+              data: (phrases) => stats.when(
+                data: (items) {
+                  if (phrases.isEmpty) {
+                    return const Text('No catchphrases registered yet.');
+                  }
+                  final byId = {
+                    for (final stat in items) stat.catchphrase.id: stat,
+                  };
+                  final rows = phrases
+                      .map(
+                        (phrase) =>
+                            byId[phrase.id] ??
+                            CatchphraseStat(
+                              catchphrase: phrase,
+                              hits: const [],
+                            ),
+                      )
+                      .toList();
+                  return Column(
+                    children: rows.map((stat) => _StatRow(stat: stat)).toList(),
+                  );
+                },
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text('Error: $e'),
+              ),
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text('Error: $e'),
             ),
@@ -644,10 +810,17 @@ class _StatRow extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.w700),
       ),
       subtitle: Text(
-        stat.catchphrase.tag.label,
+        '${stat.catchphrase.tag.label} · ${stat.count} occurrence${stat.count == 1 ? '' : 's'} today',
         style: const TextStyle(fontSize: 12),
       ),
-      trailing: const Icon(Icons.chevron_right_rounded),
+      trailing: Wrap(
+        spacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _AudioPlayButton(path: stat.catchphrase.audioPath, label: 'Sample'),
+          const Icon(Icons.chevron_right_rounded),
+        ],
+      ),
       onTap: () => showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
@@ -678,69 +851,82 @@ class _CatchphraseDetailSheet extends StatelessWidget {
             subtitle:
                 '${stat.count} occurrence${stat.count == 1 ? '' : 's'} today',
           ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _AudioPlayButton(
+              path: stat.catchphrase.audioPath,
+              label: 'Play catchphrase recording',
+            ),
+          ),
           const SizedBox(height: 16),
-          for (final hit in stat.hits)
-            Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: stat.catchphrase.color,
-                        borderRadius: BorderRadius.circular(4),
+          if (stat.hits.isEmpty)
+            const Text('No occurrences logged today.')
+          else
+            for (final hit in stat.hits)
+              Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: stat.catchphrase.color,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            DateFormat.jms().format(hit.spokenAt),
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                          const SizedBox(height: 4),
-                          if (hit.latitude != null && hit.longitude != null)
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.location_on_rounded,
-                                  size: 13,
-                                  color: CueColors.primary,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${hit.latitude!.toStringAsFixed(5)}, ${hit.longitude!.toStringAsFixed(5)}',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ],
-                            )
-                          else
-                            const Text(
-                              'No GPS data',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              DateFormat.jms().format(hit.spokenAt),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
-                          const SizedBox(height: 4),
-                          Text(
-                            hit.context.length > 80
-                                ? '${hit.context.substring(0, 80)}…'
-                                : hit.context,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ],
+                            const SizedBox(height: 4),
+                            if (hit.latitude != null && hit.longitude != null)
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.location_on_rounded,
+                                    size: 13,
+                                    color: CueColors.primary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${hit.latitude!.toStringAsFixed(5)}, ${hit.longitude!.toStringAsFixed(5)}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              )
+                            else
+                              const Text(
+                                'No GPS data',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            const SizedBox(height: 4),
+                            Text(
+                              hit.context.length > 80
+                                  ? '${hit.context.substring(0, 80)}…'
+                                  : hit.context,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
         ],
       ),
     );

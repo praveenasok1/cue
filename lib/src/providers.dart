@@ -126,6 +126,12 @@ final openRemindersProvider = StreamProvider<List<CueReminder>>((ref) {
   return ref.watch(databaseProvider).watchOpenReminders();
 });
 
+final recentRecordingSessionsProvider = StreamProvider<List<RecordingSession>>((
+  ref,
+) {
+  return ref.watch(databaseProvider).watchRecentRecordingSessions();
+});
+
 // ──────────────────────────────────────────────── catchphrase CRUD ───────────
 
 final catchphraseControllerProvider =

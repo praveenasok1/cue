@@ -379,6 +379,30 @@ INSERT INTO catchphrase_hits (
     _sessionsChanged.add(null);
   }
 
+  Stream<List<RecordingSession>> watchRecentRecordingSessions({
+    int limit = 20,
+  }) {
+    return _watch(
+      _sessionsChanged.stream,
+      () => getRecentRecordingSessions(limit: limit),
+    );
+  }
+
+  Future<List<RecordingSession>> getRecentRecordingSessions({
+    int limit = 20,
+  }) async {
+    final rows = await customSelect(
+      '''
+SELECT * FROM recording_sessions
+WHERE audio_path IS NOT NULL
+ORDER BY started_at DESC
+LIMIT ?;
+''',
+      variables: [Variable.withInt(limit)],
+    ).get();
+    return rows.map(_sessionFromRow).toList(growable: false);
+  }
+
   // ──────────────────────────────────────────────── daily summaries ─────────
 
   Stream<DailySummary?> watchTodaySummary() =>
@@ -602,6 +626,16 @@ ORDER BY due_at IS NULL, due_at ASC, created_at DESC;
       longitude: row.readNullable<double>('longitude'),
       context: row.read<String>('context'),
       sessionId: row.readNullable<int>('session_id') ?? 0,
+    );
+  }
+
+  RecordingSession _sessionFromRow(QueryRow row) {
+    return RecordingSession(
+      id: row.read<int>('id'),
+      startedAt: _dateFromMillis(row.read<int>('started_at')),
+      endedAt: _nullableDateFromMillis(row.readNullable<int>('ended_at')),
+      audioPath: row.readNullable<String>('audio_path'),
+      source: row.read<String>('source'),
     );
   }
 
