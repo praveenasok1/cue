@@ -347,13 +347,17 @@ class RecordingController extends Notifier<RecordingStatus> {
       final activeRoute = await ref
           .read(audioRouteServiceProvider)
           .initialState();
-      if (!activeRoute.earphoneMicAvailable) {
+      if (activeRoute.phoneMicActive || !activeRoute.earphoneMicAvailable) {
         await ref.read(recordingServiceProvider).stop().catchError((_) => null);
         await ref
             .read(foregroundRecordingServiceProvider)
             .stop()
             .catchError((_) {});
-        throw StateError('Recording blocked: no earphone mic is available.');
+        throw StateError(
+          activeRoute.phoneMicActive
+              ? 'Recording blocked: phone microphone is active.'
+              : 'Recording blocked: no earphone mic is available.',
+        );
       }
       session = await ref
           .read(databaseProvider)
@@ -750,6 +754,9 @@ class RecordingController extends Notifier<RecordingStatus> {
 
   bool _shouldStopForRoute(AudioRouteState route) {
     if (route.definitiveDisconnect) {
+      return true;
+    }
+    if (route.phoneMicActive) {
       return true;
     }
     if (!route.earphonesConnected || !route.earphoneMicAvailable) {

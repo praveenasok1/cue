@@ -87,6 +87,7 @@ import UIKit
       // Earphone plugged in or AirPods placed in ear.
       DispatchQueue.main.async { [weak self] in
         guard let self else { return }
+        self.prepareEarphoneMic()
         self.routeEventSink?(self.currentRouteState())
       }
     default:
@@ -175,7 +176,7 @@ import UIKit
       "earphonesConnected": output != nil || input != nil,
       "earphoneMicActive": activeInput != nil,
       "earphoneMicAvailable": input != nil,
-      "phoneMicActive": currentInput != nil && activeInput == nil,
+      "phoneMicActive": currentInput.map(isPhoneInputPort) ?? false,
       "definitiveDisconnect": false,
       "routeName": name,
       "inputName": inputName,
@@ -212,6 +213,10 @@ import UIKit
     }
   }
 
+  private func isPhoneInputPort(_ p: AVAudioSessionPortDescription) -> Bool {
+    return p.portType == .builtInMic
+  }
+
   // MARK: - Audio session setup
 
   private func prepareAudioSession() {
@@ -224,7 +229,7 @@ import UIKit
       try session.setCategory(
         .playAndRecord,
         mode: .spokenAudio,
-        options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
+        options: [.allowBluetooth]
       )
     } catch {
       NSLog("CUE: AVAudioSession category error: \(error)")
@@ -236,12 +241,14 @@ import UIKit
     do {
       try session.setCategory(
         .playAndRecord,
-        mode: .spokenAudio,
-        options: [.allowBluetooth, .allowBluetoothA2DP]
+        mode: .voiceChat,
+        options: [.allowBluetooth]
       )
       if let input = session.availableInputs?.first(where: isEarphoneInputPort) {
         try session.setPreferredInput(input)
       }
+      try session.overrideOutputAudioPort(.none)
+      try session.setActive(true, options: [])
     } catch {
       NSLog("CUE: preferred earphone mic error: \(error)")
     }

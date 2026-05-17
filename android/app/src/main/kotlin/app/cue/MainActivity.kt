@@ -10,6 +10,8 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -20,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private val routeEventsChannelName = "cue/audio_route_events"
     private var routeEventSink: EventChannel.EventSink? = null
     private lateinit var audioManager: AudioManager
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val routeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -116,6 +119,7 @@ class MainActivity : FlutterActivity() {
             emptyList()
         }
 
+        val inputDevice = headsetInputDevice(inputDevices)
         val outputDevice = outputDevices.firstOrNull { device ->
             when (device.type) {
                 AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
@@ -127,16 +131,6 @@ class MainActivity : FlutterActivity() {
                 AudioDeviceInfo.TYPE_BLE_HEADSET,
                 AudioDeviceInfo.TYPE_BLE_SPEAKER,
                 AudioDeviceInfo.TYPE_BLE_BROADCAST -> true
-                else -> false
-            }
-        }
-        val inputDevice = inputDevices.firstOrNull { device ->
-            when (device.type) {
-                AudioDeviceInfo.TYPE_WIRED_HEADSET,
-                AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-                AudioDeviceInfo.TYPE_USB_HEADSET,
-                AudioDeviceInfo.TYPE_HEARING_AID,
-                AudioDeviceInfo.TYPE_BLE_HEADSET -> true
                 else -> false
             }
         }
@@ -161,8 +155,30 @@ class MainActivity : FlutterActivity() {
         @Suppress("DEPRECATION")
         runCatching {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val inputDevice = headsetInputDevice(
+                    audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).toList()
+                )
+                if (inputDevice != null) {
+                    audioManager.setCommunicationDevice(inputDevice)
+                }
+            }
             audioManager.startBluetoothSco()
             audioManager.isBluetoothScoOn = true
+            mainHandler.postDelayed({ sendRouteState() }, 750)
+        }
+    }
+
+    private fun headsetInputDevice(devices: List<AudioDeviceInfo>): AudioDeviceInfo? {
+        return devices.firstOrNull { device ->
+            when (device.type) {
+                AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                AudioDeviceInfo.TYPE_USB_HEADSET,
+                AudioDeviceInfo.TYPE_HEARING_AID,
+                AudioDeviceInfo.TYPE_BLE_HEADSET -> true
+                else -> false
+            }
         }
     }
 }

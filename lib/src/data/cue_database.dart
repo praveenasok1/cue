@@ -261,8 +261,9 @@ ON CONFLICT(day) DO UPDATE SET
     final addition = text.trim();
     if (addition.isEmpty) return;
     final existing = await getDailyTranscript(day);
-    final separator = existing.text.trim().isEmpty ? '' : ' ';
-    await replaceDailyTranscript(day, '${existing.text}$separator$addition');
+    final timestamped = '[${_dateTimeLabel(DateTime.now())}] $addition';
+    final separator = existing.text.trim().isEmpty ? '' : '\n\n';
+    await replaceDailyTranscript(day, '${existing.text}$separator$timestamped');
   }
 
   // ──────────────────────────────────────────────── catchphrase hits ─────────
@@ -621,6 +622,17 @@ QueryExecutor _openConnection() => driftDatabase(name: 'cue.sqlite');
 String _dayKey(DateTime day) {
   final d = _dateOnly(day);
   return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+}
+
+String _dateTimeLabel(DateTime value) {
+  final hour12 = value.hour == 0
+      ? 12
+      : value.hour > 12
+      ? value.hour - 12
+      : value.hour;
+  final minute = value.minute.toString().padLeft(2, '0');
+  final period = value.hour >= 12 ? 'PM' : 'AM';
+  return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} $hour12:$minute $period';
 }
 
 DateTime _dateOnly(DateTime day) => DateTime(day.year, day.month, day.day);
