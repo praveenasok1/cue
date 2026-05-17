@@ -136,10 +136,12 @@ class _RecordingHero extends ConsumerWidget {
                   ),
                 ),
                 Icon(
-                  status.earphonesConnected
+                  status.earphoneMicActive
                       ? Icons.headphones_rounded
+                      : status.earphonesConnected
+                      ? Icons.headset_mic_rounded
                       : Icons.headset_off_rounded,
-                  color: status.earphonesConnected
+                  color: status.earphoneMicActive
                       ? CueColors.primary
                       : cs.outlineVariant,
                 ),
@@ -151,17 +153,26 @@ class _RecordingHero extends ConsumerWidget {
               status.statusMessage,
               style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
             ),
+            const SizedBox(height: 6),
+            Text(
+              status.earphoneMicActive
+                  ? 'Input locked to ${status.inputName}'
+                  : 'Recording is blocked until an earphone mic is active',
+              style: TextStyle(
+                color: status.earphoneMicActive
+                    ? CueColors.positive
+                    : cs.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
 
-            // ─── Waveform ─────────────────────────────────────────────────────
+            // ─── Mic level meter ──────────────────────────────────────────────
             const SizedBox(height: 18),
             LiveWaveform(
               amplitude: status.amplitude,
               isRecording: status.isRecording && !status.isPaused,
             ),
-
-            // ─── Mic meter ────────────────────────────────────────────────────
-            const SizedBox(height: 8),
-            _MicMeter(status: status),
 
             // ─── Catchphrase radar ────────────────────────────────────────────
             if (status.isRecording) ...[
@@ -215,52 +226,16 @@ class _RecordingHero extends ConsumerWidget {
                 child: FilledButton.icon(
                   icon: const Icon(Icons.mic_rounded),
                   label: const Text('Start session'),
-                  onPressed: () => ref
-                      .read(recordingControllerProvider.notifier)
-                      .startManualRecording(),
+                  onPressed: status.earphoneMicActive
+                      ? () => ref
+                            .read(recordingControllerProvider.notifier)
+                            .startManualRecording()
+                      : null,
                 ),
               ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _MicMeter extends StatelessWidget {
-  const _MicMeter({required this.status});
-  final RecordingStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final active = status.isRecording && !status.isPaused;
-    final value = active ? (status.amplitude * 0.55).clamp(0.0, 1.0) : 0.0;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            minHeight: 5,
-            value: value,
-            backgroundColor: Theme.of(
-              context,
-            ).colorScheme.surfaceContainerHighest,
-            color: CueColors.primary.withValues(alpha: 0.7),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          active
-              ? 'Mic ${(value * 100).round()}%'
-              : status.isPaused
-              ? 'Mic paused'
-              : 'Mic inactive',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
     );
   }
 }

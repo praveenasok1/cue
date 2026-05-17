@@ -32,11 +32,15 @@ import UIKit
       name: routeChannelName,
       binaryMessenger: messenger
     ).setMethodCallHandler { [weak self] call, result in
-      guard call.method == "currentRoute" else {
+      switch call.method {
+      case "currentRoute":
+        result(self?.currentRouteState() ?? self?.fallbackRouteState())
+      case "prepareEarphoneMic":
+        self?.prepareEarphoneMic()
+        result(self?.currentRouteState() ?? self?.fallbackRouteState())
+      default:
         result(FlutterMethodNotImplemented)
-        return
       }
-      result(self?.currentRouteState() ?? ["earphonesConnected": false, "routeName": "None"])
     }
 
     FlutterEventChannel(
@@ -90,7 +94,12 @@ import UIKit
       // Earphone physically removed or AirPods taken out of ear –
       // send immediately so Dart stops recording without delay.
       DispatchQueue.main.async { [weak self] in
-        self?.routeEventSink?(["earphonesConnected": false, "routeName": "Device speaker"])
+        self?.routeEventSink?(self?.fallbackRouteState() ?? [
+          "earphonesConnected": false,
+          "earphoneMicActive": false,
+          "routeName": "Device speaker",
+          "inputName": "Phone microphone",
+        ])
       }
     case .newDeviceAvailable:
       // Earphone plugged in or AirPods placed in ear.
@@ -119,19 +128,45 @@ import UIKit
   private func currentRouteState() -> [String: Any] {
     let session = AVAudioSession.sharedInstance()
     // Check active outputs first (what audio is going to).
-    let output = session.currentRoute.outputs.first(where: isEarphonePort)
-    // Fall back to checking available inputs (AirPods mic present but not actively routing).
-    let input = session.availableInputs?.first(where: isEarphonePort)
+    let output = session.currentRoute.outputs.first(where: isEarphoneOutputPort)
+    let activeInput = session.currentRoute.inputs.first(where: isEarphoneInputPort)
+    let currentInput = session.currentRoute.inputs.first
+    // Fall back to checking available inputs before the recorder has activated
+    // the audio session. Recording is re-checked after start and stopped if the
+    // active route is not an earphone mic.
+    let availableInput = session.availableInputs?.first(where: isEarphoneInputPort)
+    let input = activeInput ?? (currentInput == nil ? availableInput : nil)
     let name = output?.portName ?? input?.portName ?? "Device speaker"
+    let inputName = input?.portName ?? currentInput?.portName ?? "Phone microphone"
     return [
       "earphonesConnected": output != nil || input != nil,
+      "earphoneMicActive": input != nil,
       "routeName": name,
+      "inputName": inputName,
     ]
   }
 
-  private func isEarphonePort(_ p: AVAudioSessionPortDescription) -> Bool {
+  private func fallbackRouteState() -> [String: Any] {
+    return [
+      "earphonesConnected": false,
+      "earphoneMicActive": false,
+      "routeName": "Device speaker",
+      "inputName": "Phone microphone",
+    ]
+  }
+
+  private func isEarphoneOutputPort(_ p: AVAudioSessionPortDescription) -> Bool {
     switch p.portType {
     case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .headphones, .headsetMic, .usbAudio:
+      return true
+    default:
+      return false
+    }
+  }
+
+  private func isEarphoneInputPort(_ p: AVAudioSessionPortDescription) -> Bool {
+    switch p.portType {
+    case .bluetoothHFP, .bluetoothLE, .headsetMic, .usbAudio:
       return true
     default:
       return false
@@ -154,6 +189,22 @@ import UIKit
       )
     } catch {
       NSLog("CUE: AVAudioSession category error: \(error)")
+    }
+  }
+
+  private func prepareEarphoneMic() {
+    let session = AVAudioSession.sharedInstance()
+    do {
+      try session.setCategory(
+        .playAndRecord,
+        mode: .spokenAudio,
+        options: [.allowBluetooth, .allowBluetoothA2DP]
+      )
+      if let input = session.availableInputs?.first(where: isEarphoneInputPort) {
+        try session.setPreferredInput(input)
+      }
+    } catch {
+      NSLog("CUE: preferred earphone mic error: \(error)")
     }
   }
 

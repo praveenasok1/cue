@@ -167,6 +167,8 @@ class RecordingStatus {
   const RecordingStatus({
     required this.isRecording,
     required this.earphonesConnected,
+    this.earphoneMicActive = false,
+    this.inputName = 'Phone microphone',
     this.isPaused = false,
     this.isManualSession = false,
     this.session,
@@ -180,6 +182,8 @@ class RecordingStatus {
 
   final bool isRecording;
   final bool earphonesConnected;
+  final bool earphoneMicActive;
+  final String inputName;
   final bool isPaused;
   final bool isManualSession;
   final RecordingSession? session;
@@ -193,6 +197,8 @@ class RecordingStatus {
   RecordingStatus copyWith({
     bool? isRecording,
     bool? earphonesConnected,
+    bool? earphoneMicActive,
+    String? inputName,
     bool? isPaused,
     bool? isManualSession,
     RecordingSession? session,
@@ -208,6 +214,8 @@ class RecordingStatus {
     return RecordingStatus(
       isRecording: isRecording ?? this.isRecording,
       earphonesConnected: earphonesConnected ?? this.earphonesConnected,
+      earphoneMicActive: earphoneMicActive ?? this.earphoneMicActive,
+      inputName: inputName ?? this.inputName,
       isPaused: isPaused ?? this.isPaused,
       isManualSession: isManualSession ?? this.isManualSession,
       session: clearSession ? null : session ?? this.session,

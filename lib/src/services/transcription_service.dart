@@ -119,7 +119,7 @@ class TranscriptionService {
 
   void _startWatchdog() {
     _watchdog?.cancel();
-    _watchdog = Timer.periodic(const Duration(seconds: 2), (_) {
+    _watchdog = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!_shouldListen || _speechToText.isListening) return;
       unawaited(
         _startListening().catchError((Object error) {

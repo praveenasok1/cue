@@ -5,11 +5,17 @@ import 'package:flutter/services.dart';
 class AudioRouteState {
   const AudioRouteState({
     required this.earphonesConnected,
+    required this.earphoneMicActive,
     this.routeName = 'Unknown',
+    this.inputName = 'Phone microphone',
   });
 
   final bool earphonesConnected;
+  final bool earphoneMicActive;
   final String routeName;
+  final String inputName;
+
+  bool get canRecordWithEarphoneMic => earphonesConnected && earphoneMicActive;
 }
 
 class AudioRouteService {
@@ -28,9 +34,22 @@ class AudioRouteService {
       );
       return _stateFromMap(result);
     } on PlatformException {
-      return const AudioRouteState(earphonesConnected: false);
+      return _fallbackState();
     } on MissingPluginException {
-      return const AudioRouteState(earphonesConnected: false);
+      return _fallbackState();
+    }
+  }
+
+  Future<AudioRouteState> prepareEarphoneMic() async {
+    try {
+      final result = await _methodChannel.invokeMapMethod<String, Object?>(
+        'prepareEarphoneMic',
+      );
+      return _stateFromMap(result);
+    } on PlatformException {
+      return initialState();
+    } on MissingPluginException {
+      return initialState();
     }
   }
 
@@ -59,7 +78,7 @@ class AudioRouteService {
         return;
       }
 
-      await Future<void>.delayed(const Duration(milliseconds: 450));
+      await Future<void>.delayed(const Duration(seconds: 2));
       final refreshed = await initialState();
       if (!_sameState(refreshed, latest)) {
         latest = refreshed;
@@ -71,12 +90,23 @@ class AudioRouteService {
   AudioRouteState _stateFromMap(Map<String, Object?>? map) {
     return AudioRouteState(
       earphonesConnected: map?['earphonesConnected'] == true,
+      earphoneMicActive: map?['earphoneMicActive'] == true,
       routeName: (map?['routeName'] as String?) ?? 'Unknown',
+      inputName: (map?['inputName'] as String?) ?? 'Phone microphone',
     );
   }
 
   bool _sameState(AudioRouteState a, AudioRouteState b) {
     return a.earphonesConnected == b.earphonesConnected &&
-        a.routeName == b.routeName;
+        a.earphoneMicActive == b.earphoneMicActive &&
+        a.routeName == b.routeName &&
+        a.inputName == b.inputName;
+  }
+
+  AudioRouteState _fallbackState() {
+    return const AudioRouteState(
+      earphonesConnected: false,
+      earphoneMicActive: false,
+    );
   }
 }

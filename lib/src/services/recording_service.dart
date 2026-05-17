@@ -19,8 +19,8 @@ class RecordingService {
   final AudioRecorder _recorder;
 
   Stream<double> amplitudeStream() {
-    // Poll at 60 ms for smoother waveform on iOS.
-    return _recorder.onAmplitudeChanged(const Duration(milliseconds: 60)).map((
+    // A 120 ms level cadence keeps the meter responsive without burning power.
+    return _recorder.onAmplitudeChanged(const Duration(milliseconds: 120)).map((
       amplitude,
     ) {
       // Use the peak value for instant waveform response.

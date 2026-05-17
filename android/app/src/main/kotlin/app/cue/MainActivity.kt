@@ -49,10 +49,13 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             routeChannelName
         ).setMethodCallHandler { call, result ->
-            if (call.method == "currentRoute") {
-                result.success(currentRouteState())
-            } else {
-                result.notImplemented()
+            when (call.method) {
+                "currentRoute" -> result.success(currentRouteState())
+                "prepareEarphoneMic" -> {
+                    prepareEarphoneMic()
+                    result.success(currentRouteState())
+                }
+                else -> result.notImplemented()
             }
         }
 
@@ -102,13 +105,18 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun currentRouteState(): Map<String, Any> {
-        val devices = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val outputDevices = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
         } else {
             emptyList()
         }
+        val inputDevices = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).toList()
+        } else {
+            emptyList()
+        }
 
-        val connectedDevice = devices.firstOrNull { device ->
+        val outputDevice = outputDevices.firstOrNull { device ->
             when (device.type) {
                 AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
                 AudioDeviceInfo.TYPE_WIRED_HEADSET,
@@ -122,10 +130,33 @@ class MainActivity : FlutterActivity() {
                 else -> false
             }
         }
+        val inputDevice = inputDevices.firstOrNull { device ->
+            when (device.type) {
+                AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                AudioDeviceInfo.TYPE_USB_HEADSET,
+                AudioDeviceInfo.TYPE_HEARING_AID,
+                AudioDeviceInfo.TYPE_BLE_HEADSET -> true
+                else -> false
+            }
+        }
 
         return mapOf(
-            "earphonesConnected" to (connectedDevice != null),
-            "routeName" to (connectedDevice?.productName?.toString() ?: "Device speaker")
+            "earphonesConnected" to (outputDevice != null || inputDevice != null),
+            "earphoneMicActive" to (inputDevice != null),
+            "routeName" to (outputDevice?.productName?.toString()
+                ?: inputDevice?.productName?.toString()
+                ?: "Device speaker"),
+            "inputName" to (inputDevice?.productName?.toString() ?: "Phone microphone")
         )
+    }
+
+    private fun prepareEarphoneMic() {
+        @Suppress("DEPRECATION")
+        runCatching {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            audioManager.startBluetoothSco()
+            audioManager.isBluetoothScoOn = true
+        }
     }
 }
