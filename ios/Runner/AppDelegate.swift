@@ -23,7 +23,11 @@ import UIKit
     }
 
     configureAudioSession()
-    let messenger = registrar(forPlugin: "CueAudioRoutePlugin").messenger()
+    guard let cueRegistrar = registrar(forPlugin: "CueAudioRoutePlugin") else {
+      NSLog("CUE failed to create Flutter plugin registrar")
+      return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+    let messenger = cueRegistrar.messenger()
 
     FlutterMethodChannel(
       name: routeChannelName,
