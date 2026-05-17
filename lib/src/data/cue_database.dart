@@ -111,14 +111,12 @@ INSERT INTO catchphrases (
 ) VALUES (?, ?, ?, ?, ?, ?);
 ''',
       [
-        Variable.withString(normalized),
-        Variable.withString(polarity.symbol),
-        Variable.withInt(color.toARGB32()),
-        Variable.withString(audioPath),
-        notes == null || notes.trim().isEmpty
-            ? const Variable(null)
-            : Variable.withString(notes.trim()),
-        Variable.withInt(now.millisecondsSinceEpoch),
+        normalized,
+        polarity.symbol,
+        color.toARGB32(),
+        audioPath,
+        notes == null || notes.trim().isEmpty ? null : notes.trim(),
+        now.millisecondsSinceEpoch,
       ],
     );
     final id = await _lastInsertId();
@@ -135,9 +133,7 @@ INSERT INTO catchphrases (
   }
 
   Future<void> deleteCatchphrase(int id) async {
-    await customStatement('DELETE FROM catchphrases WHERE id = ?;', [
-      Variable.withInt(id),
-    ]);
+    await customStatement('DELETE FROM catchphrases WHERE id = ?;', [id]);
     _catchphrasesChanged.add(null);
     _hitsChanged.add(null);
   }
@@ -171,11 +167,7 @@ ON CONFLICT(day) DO UPDATE SET
   text = excluded.text,
   updated_at = excluded.updated_at;
 ''',
-      [
-        Variable.withString(_dayKey(day)),
-        Variable.withString(text),
-        Variable.withInt(DateTime.now().millisecondsSinceEpoch),
-      ],
+      [_dayKey(day), text, DateTime.now().millisecondsSinceEpoch],
     );
     _transcriptChanged.add(null);
   }
@@ -270,12 +262,12 @@ INSERT INTO catchphrase_hits (
 ) VALUES (?, ?, ?, ?, ?, ?);
 ''',
       [
-        Variable.withInt(catchphrase.id),
-        Variable.withString(catchphrase.phrase),
-        Variable.withInt(now.millisecondsSinceEpoch),
-        latitude == null ? const Variable(null) : Variable.withReal(latitude),
-        longitude == null ? const Variable(null) : Variable.withReal(longitude),
-        Variable.withString(context),
+        catchphrase.id,
+        catchphrase.phrase,
+        now.millisecondsSinceEpoch,
+        latitude,
+        longitude,
+        context,
       ],
     );
     final id = await _lastInsertId();
@@ -299,7 +291,7 @@ UPDATE catchphrase_hits
 SET mood = ?, acknowledged = 1
 WHERE id = ?;
 ''',
-      [Variable.withString(mood.name), Variable.withInt(hitId)],
+      [mood.name, hitId],
     );
     _hitsChanged.add(null);
   }
@@ -314,13 +306,7 @@ WHERE id = ?;
 INSERT INTO recording_sessions (started_at, audio_path, source)
 VALUES (?, ?, ?);
 ''',
-      [
-        Variable.withInt(now.millisecondsSinceEpoch),
-        audioPath == null
-            ? const Variable(null)
-            : Variable.withString(audioPath),
-        Variable.withString(source),
-      ],
+      [now.millisecondsSinceEpoch, audioPath, source],
     );
     final id = await _lastInsertId();
     _sessionsChanged.add(null);
@@ -339,10 +325,7 @@ UPDATE recording_sessions
 SET ended_at = ?
 WHERE id = ? AND ended_at IS NULL;
 ''',
-      [
-        Variable.withInt(DateTime.now().millisecondsSinceEpoch),
-        Variable.withInt(id),
-      ],
+      [DateTime.now().millisecondsSinceEpoch, id],
     );
     _sessionsChanged.add(null);
   }
