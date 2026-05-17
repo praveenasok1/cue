@@ -1,0 +1,14 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'src/app.dart';
+import 'src/services/foreground_recording_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  FlutterForegroundTask.initCommunicationPort();
+  configureForegroundTask();
+
+  runApp(const ProviderScope(child: CueApp()));
+}

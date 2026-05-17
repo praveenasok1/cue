@@ -1,0 +1,218 @@
+name: iOS Signed IPA
+
+on:
+  push:
+    branches:
+      - main
+      - 'cursor/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: 'Apple Bundle ID registered in your Developer account'
+        required: true
+        default: 'com.yourname.cue'
+      export_method:
+        description: 'Use development for a development profile or ad-hoc for an Ad Hoc profile'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - ad-hoc
+      code_sign_identity:
+        description: 'Certificate identity in the p12'
+        required: true
+        default: 'Apple Development'
+
+jobs:
+  validate-workflow:
+    name: Validate signed IPA workflow
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain manual signing
+        run: echo "Signed IPA builds run only from workflow_dispatch with Apple signing secrets."
+
+  build-signed-ipa:
+    name: Build signed iOS IPA
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    env:
+      APP_BUNDLE_ID: ${{ github.event.inputs.bundle_id }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+      BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+      CODE_SIGN_IDENTITY: ${{ github.event.inputs.code_sign_identity }}
+      EXPORT_METHOD: ${{ github.event.inputs.export_method }}
+      EXPORT_OPTIONS_PATH: ios/ExportOptions.plist
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Prepare signing paths
+        run: |
+          {
+            echo "CERTIFICATE_PATH=$RUNNER_TEMP/cue-signing-certificate.p12"
+            echo "KEYCHAIN_PATH=$RUNNER_TEMP/cue-signing.keychain-db"
+            echo "PROFILE_PATH=$RUNNER_TEMP/cue.mobileprovision"
+            echo "PROFILE_PLIST_PATH=$RUNNER_TEMP/cue.mobileprovision.plist"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate signing inputs
+        run: |
+          test -n "$APP_BUNDLE_ID"
+          test -n "$APPLE_TEAM_ID"
+          test -n "$BUILD_CERTIFICATE_BASE64"
+          test -n "$BUILD_PROVISION_PROFILE_BASE64"
+          test -n "$KEYCHAIN_PASSWORD"
+          test -n "$P12_PASSWORD"
+
+      - name: Decode signing assets
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          assets = {
+              'BUILD_CERTIFICATE_BASE64': 'CERTIFICATE_PATH',
+              'BUILD_PROVISION_PROFILE_BASE64': 'PROFILE_PATH',
+          }
+          for source, destination in assets.items():
+              Path(os.environ[destination]).write_bytes(
+                  base64.b64decode(os.environ[source])
+              )
+          PY
+
+      - name: Import signing certificate
+        run: |
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$P12_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+      - name: Install provisioning profile
+        run: |
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST_PATH"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PROFILE_PLIST_PATH")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST_PATH")
+          TEAM_IDENTIFIER=$(/usr/libexec/PlistBuddy -c 'Print TeamIdentifier:0' "$PROFILE_PLIST_PATH")
+          PROFILE_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print Entitlements:application-identifier' "$PROFILE_PLIST_PATH" | sed "s/^$TEAM_IDENTIFIER\\.//")
+
+          if [ "$TEAM_IDENTIFIER" != "$APPLE_TEAM_ID" ]; then
+            echo "Provisioning profile team '$TEAM_IDENTIFIER' does not match APPLE_TEAM_ID." >&2
+            exit 1
+          fi
+
+          if [ "$PROFILE_BUNDLE_ID" != "$APP_BUNDLE_ID" ]; then
+            echo "Provisioning profile bundle id '$PROFILE_BUNDLE_ID' does not match '$APP_BUNDLE_ID'." >&2
+            exit 1
+          fi
+
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          {
+            echo "PROFILE_NAME=$PROFILE_NAME"
+            echo "PROFILE_UUID=$PROFILE_UUID"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure Xcode signing
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          project_path = Path('ios/Runner.xcodeproj/project.pbxproj')
+          text = project_path.read_text()
+          original = 'PRODUCT_BUNDLE_IDENTIFIER = app.cue;'
+          replacement = (
+              f'PRODUCT_BUNDLE_IDENTIFIER = {os.environ["APP_BUNDLE_ID"]};\n'
+              '\t\t\t\tCODE_SIGN_STYLE = Manual;\n'
+              f'\t\t\t\tDEVELOPMENT_TEAM = {os.environ["APPLE_TEAM_ID"]};\n'
+              f'\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "{os.environ["PROFILE_NAME"]}";\n'
+              f'\t\t\t\t"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "{os.environ["CODE_SIGN_IDENTITY"]}";'
+          )
+          if original not in text:
+              raise SystemExit('Could not find default Runner bundle id in project.pbxproj')
+          project_path.write_text(text.replace(original, replacement))
+          PY
+
+      - name: Create export options
+        run: |
+          cat > "$EXPORT_OPTIONS_PATH" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>compileBitcode</key>
+            <false/>
+            <key>destination</key>
+            <string>export</string>
+            <key>method</key>
+            <string>$EXPORT_METHOD</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$APP_BUNDLE_ID</key>
+              <string>$PROFILE_NAME</string>
+            </dict>
+            <key>signingCertificate</key>
+            <string>$CODE_SIGN_IDENTITY</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>teamID</key>
+            <string>$APPLE_TEAM_ID</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Install iOS pods
+        run: pod install --repo-update
+        working-directory: ios
+
+      - name: Build signed IPA
+        run: flutter build ipa --release --build-number=${{ github.run_number }} --export-options-plist="$EXPORT_OPTIONS_PATH"
+
+      - name: Upload signed IPA
+        uses: actions/upload-artifact@v6
+        with:
+          name: cue-ios-signed-ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Clean up signing keychain
+        if: always()
+        run: |
+          security delete-keychain "$KEYCHAIN_PATH" || true
+          rm -f "$CERTIFICATE_PATH" "$PROFILE_PATH" "$PROFILE_PLIST_PATH" "$EXPORT_OPTIONS_PATH"
