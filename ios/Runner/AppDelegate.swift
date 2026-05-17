@@ -73,11 +73,12 @@ import UIKit
       // Earphone physically removed or AirPods taken out of ear –
       // send immediately so Dart stops recording without delay.
       DispatchQueue.main.async { [weak self] in
-        self?.routeEventSink?(self?.fallbackRouteState() ?? [
+        self?.routeEventSink?(self?.fallbackRouteState(definitiveDisconnect: true) ?? [
           "earphonesConnected": false,
           "earphoneMicActive": false,
           "earphoneMicAvailable": false,
           "phoneMicActive": false,
+          "definitiveDisconnect": true,
           "routeName": "Device speaker",
           "inputName": "Phone microphone",
         ])
@@ -175,17 +176,19 @@ import UIKit
       "earphoneMicActive": activeInput != nil,
       "earphoneMicAvailable": input != nil,
       "phoneMicActive": currentInput != nil && activeInput == nil,
+      "definitiveDisconnect": false,
       "routeName": name,
       "inputName": inputName,
     ]
   }
 
-  private func fallbackRouteState() -> [String: Any] {
+  private func fallbackRouteState(definitiveDisconnect: Bool = false) -> [String: Any] {
     return [
       "earphonesConnected": false,
       "earphoneMicActive": false,
       "earphoneMicAvailable": false,
       "phoneMicActive": false,
+      "definitiveDisconnect": definitiveDisconnect,
       "routeName": "Device speaker",
       "inputName": "Phone microphone",
     ]

@@ -749,8 +749,14 @@ class RecordingController extends Notifier<RecordingStatus> {
   }
 
   bool _shouldStopForRoute(AudioRouteState route) {
-    if (!route.earphonesConnected || !route.earphoneMicAvailable) {
+    if (route.definitiveDisconnect) {
       return true;
+    }
+    if (!route.earphonesConnected || !route.earphoneMicAvailable) {
+      // Status polling can briefly lose Bluetooth input visibility while iOS
+      // keeps the recorder alive. Do not stop unless native route-change
+      // reported a physical disconnect.
+      return false;
     }
     if (route.hasActiveEarphoneMic) {
       return false;

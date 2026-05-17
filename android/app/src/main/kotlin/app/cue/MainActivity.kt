@@ -149,6 +149,7 @@ class MainActivity : FlutterActivity() {
             "earphoneMicActive" to (inputDevice != null),
             "earphoneMicAvailable" to (inputDevice != null),
             "phoneMicActive" to phoneMicActive,
+            "definitiveDisconnect" to false,
             "routeName" to (outputDevice?.productName?.toString()
                 ?: inputDevice?.productName?.toString()
                 ?: "Device speaker"),
