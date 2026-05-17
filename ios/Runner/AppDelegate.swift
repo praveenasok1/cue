@@ -214,6 +214,6 @@ import UIKit
     if let vc = window?.rootViewController as? FlutterViewController {
       return vc.binaryMessenger
     }
-    return registrar(forPlugin: "AudioSessionPlugin")?.messenger()
+    return nil
   }
 }
