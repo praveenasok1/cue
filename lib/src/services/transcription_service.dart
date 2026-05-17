@@ -1,0 +1,148 @@
+import 'dart:async';
+
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+
+class TranscriptionChunk {
+  const TranscriptionChunk({required this.text, required this.isFinal});
+
+  final String text;
+  final bool isFinal;
+}
+
+class TranscriptionService {
+  TranscriptionService({SpeechToText? speechToText})
+    : _speechToText = speechToText ?? SpeechToText();
+
+  final SpeechToText _speechToText;
+  final _chunks = StreamController<TranscriptionChunk>.broadcast();
+  final _errors = StreamController<String>.broadcast();
+  final _soundLevels = StreamController<double>.broadcast();
+  bool _shouldListen = false;
+  bool _initialized = false;
+  Timer? _watchdog;
+
+  Stream<TranscriptionChunk> get chunks => _chunks.stream;
+  Stream<String> get errors => _errors.stream;
+  Stream<double> get soundLevels => _soundLevels.stream;
+
+  Future<void> start() async {
+    _shouldListen = true;
+    if (!_initialized) {
+      final available = await _speechToText.initialize(
+        onError: (error) {
+          if (!_isSilenceError(error.errorMsg)) {
+            _errors.add(error.errorMsg);
+          }
+        },
+        onStatus: _handleStatus,
+      );
+      if (!available) {
+        throw StateError('Speech recognition is not available on this device.');
+      }
+      _initialized = true;
+    }
+
+    await _startListening();
+    _startWatchdog();
+  }
+
+  Future<void> _startListening() async {
+    if (!_shouldListen || _speechToText.isListening) return;
+
+    await _speechToText.listen(
+      listenOptions: SpeechListenOptions(
+        listenMode: ListenMode.dictation,
+        partialResults: true,
+        cancelOnError: false,
+      ),
+      onResult: _handleResult,
+      onSoundLevelChange: _handleSoundLevel,
+    );
+  }
+
+  Future<void> stop() async {
+    _shouldListen = false;
+    _watchdog?.cancel();
+    _watchdog = null;
+    await _speechToText.stop();
+  }
+
+  Future<void> pause() => stop();
+
+  Future<void> resume() => start();
+
+  Future<void> dispose() async {
+    _shouldListen = false;
+    _watchdog?.cancel();
+    _watchdog = null;
+    await _speechToText.cancel();
+    await _errors.close();
+    await _soundLevels.close();
+    await _chunks.close();
+  }
+
+  void _handleStatus(String status) {
+    if (!_shouldListen) return;
+    if (status == 'done' || status == 'notListening') {
+      Future<void>.delayed(const Duration(milliseconds: 350), () async {
+        try {
+          await _startListening();
+        } on Exception catch (error) {
+          final message = error.toString();
+          if (!_isSilenceError(message)) {
+            _errors.add(message);
+          }
+        }
+      });
+    }
+  }
+
+  void _handleResult(SpeechRecognitionResult result) {
+    final text = result.recognizedWords.trim();
+    if (text.isEmpty) return;
+    _chunks.add(TranscriptionChunk(text: text, isFinal: result.finalResult));
+  }
+
+  void _handleSoundLevel(double level) {
+    if (!level.isFinite) return;
+    final normalized = switch (level) {
+      >= 0 && <= 1 => level,
+      < 0 => (level + 60) / 60,
+      _ => level / 20,
+    };
+    _soundLevels.add(normalized.clamp(0, 1).toDouble());
+  }
+
+  bool get isListening => _speechToText.isListening;
+
+  Future<void> ensureListening() async {
+    if (_shouldListen && !_speechToText.isListening) {
+      await _startListening();
+    }
+  }
+
+  void _startWatchdog() {
+    _watchdog?.cancel();
+    _watchdog = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!_shouldListen || _speechToText.isListening) return;
+      unawaited(
+        _startListening().catchError((Object error) {
+          final message = error.toString();
+          if (!_isSilenceError(message)) {
+            _errors.add(message);
+          }
+        }),
+      );
+    });
+  }
+
+  bool _isSilenceError(String message) {
+    final normalized = message.toLowerCase();
+    return normalized.contains('no speech detected') ||
+        normalized.contains('error_no_match') ||
+        normalized.contains('no_match') ||
+        normalized.contains('kafassistanterrordomain code=1110') ||
+        normalized.contains('code=1110');
+  }
+}
