@@ -29,13 +29,13 @@ jobs:
       contents: read
 
     env:
-      APP_BUNDLE_ID: ${{ inputs.bundle_id }}
+      APP_BUNDLE_ID: ${{ github.event.inputs.bundle_id }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
       BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
       CERTIFICATE_PATH: ${{ runner.temp }}/cue-signing-certificate.p12
-      CODE_SIGN_IDENTITY: ${{ inputs.code_sign_identity }}
-      EXPORT_METHOD: ${{ inputs.export_method }}
+      CODE_SIGN_IDENTITY: ${{ github.event.inputs.code_sign_identity }}
+      EXPORT_METHOD: ${{ github.event.inputs.export_method }}
       EXPORT_OPTIONS_PATH: ios/ExportOptions.plist
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       KEYCHAIN_PATH: ${{ runner.temp }}/cue-signing.keychain-db
