@@ -274,7 +274,6 @@ class RecordingController extends Notifier<RecordingStatus> {
   Timer? _pipelineHealthTimer;
   Timer? _insightDebounceTimer;
   DateTime _lastAmplitudeUpdate = DateTime.fromMillisecondsSinceEpoch(0);
-  DateTime? _recordingStartedAt;
   bool _isStarting = false;
   bool _isRecovering = false;
   String _activeSource = 'Unknown';
@@ -408,7 +407,6 @@ class RecordingController extends Notifier<RecordingStatus> {
       }
 
       _activeSource = source;
-      _recordingStartedAt = DateTime.now();
       state = state.copyWith(
         isRecording: true,
         session: session,
@@ -440,7 +438,6 @@ class RecordingController extends Notifier<RecordingStatus> {
       await ref.read(foregroundRecordingServiceProvider).stop();
       _pipelineHealthTimer?.cancel();
       _pipelineHealthTimer = null;
-      _recordingStartedAt = null;
       state = state.copyWith(
         isRecording: false,
         isPaused: false,
@@ -498,7 +495,6 @@ class RecordingController extends Notifier<RecordingStatus> {
     _levelDecayTimer = null;
     _pipelineHealthTimer?.cancel();
     _pipelineHealthTimer = null;
-    _recordingStartedAt = null;
     _insightDebounceTimer?.cancel();
     _insightDebounceTimer = null;
 
@@ -747,7 +743,7 @@ class RecordingController extends Notifier<RecordingStatus> {
       return 'Earphone mic ready';
     }
     if (!route.earphoneMicActive) {
-      return 'Earphone mic route is not active';
+      return 'Recording through selected earphone mic';
     }
     return 'Earphone mic: ${route.inputName}';
   }
@@ -759,11 +755,10 @@ class RecordingController extends Notifier<RecordingStatus> {
     if (route.hasActiveEarphoneMic) {
       return false;
     }
-    final startedAt = _recordingStartedAt;
-    if (startedAt == null) {
-      return false;
-    }
-    return route.phoneMicActive &&
-        DateTime.now().difference(startedAt) > const Duration(seconds: 6);
+    // Some iOS Bluetooth routes keep reporting the selected headset mic as
+    // available rather than active while the recorder is successfully capturing.
+    // Do not stop a healthy session on that ambiguous state; only stop on a
+    // clear disconnect/no-earphone-mic state above.
+    return false;
   }
 }
