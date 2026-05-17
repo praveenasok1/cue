@@ -140,11 +140,15 @@ class MainActivity : FlutterActivity() {
                 else -> false
             }
         }
+        val phoneMicActive = inputDevice == null && inputDevices.any { device ->
+            device.type == AudioDeviceInfo.TYPE_BUILTIN_MIC
+        }
 
         return mapOf(
             "earphonesConnected" to (outputDevice != null || inputDevice != null),
             "earphoneMicActive" to (inputDevice != null),
             "earphoneMicAvailable" to (inputDevice != null),
+            "phoneMicActive" to phoneMicActive,
             "routeName" to (outputDevice?.productName?.toString()
                 ?: inputDevice?.productName?.toString()
                 ?: "Device speaker"),

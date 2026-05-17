@@ -169,6 +169,7 @@ class RecordingStatus {
     required this.earphonesConnected,
     this.earphoneMicActive = false,
     this.earphoneMicAvailable = false,
+    this.phoneMicActive = false,
     this.inputName = 'Phone microphone',
     this.isPaused = false,
     this.isManualSession = false,
@@ -185,6 +186,7 @@ class RecordingStatus {
   final bool earphonesConnected;
   final bool earphoneMicActive;
   final bool earphoneMicAvailable;
+  final bool phoneMicActive;
   final String inputName;
   final bool isPaused;
   final bool isManualSession;
@@ -201,6 +203,7 @@ class RecordingStatus {
     bool? earphonesConnected,
     bool? earphoneMicActive,
     bool? earphoneMicAvailable,
+    bool? phoneMicActive,
     String? inputName,
     bool? isPaused,
     bool? isManualSession,
@@ -219,6 +222,7 @@ class RecordingStatus {
       earphonesConnected: earphonesConnected ?? this.earphonesConnected,
       earphoneMicActive: earphoneMicActive ?? this.earphoneMicActive,
       earphoneMicAvailable: earphoneMicAvailable ?? this.earphoneMicAvailable,
+      phoneMicActive: phoneMicActive ?? this.phoneMicActive,
       inputName: inputName ?? this.inputName,
       isPaused: isPaused ?? this.isPaused,
       isManualSession: isManualSession ?? this.isManualSession,

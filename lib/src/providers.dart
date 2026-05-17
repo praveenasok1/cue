@@ -274,6 +274,7 @@ class RecordingController extends Notifier<RecordingStatus> {
   Timer? _pipelineHealthTimer;
   Timer? _insightDebounceTimer;
   DateTime _lastAmplitudeUpdate = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime? _recordingStartedAt;
   bool _isStarting = false;
   bool _isRecovering = false;
   String _activeSource = 'Unknown';
@@ -302,12 +303,13 @@ class RecordingController extends Notifier<RecordingStatus> {
       earphonesConnected: route.earphonesConnected,
       earphoneMicActive: route.earphoneMicActive,
       earphoneMicAvailable: route.earphoneMicAvailable,
+      phoneMicActive: route.phoneMicActive,
       inputName: route.inputName,
       statusMessage: _routeStatusMessage(route),
     );
     if (route.canStartWithEarphoneMic && !state.isRecording && !_isStarting) {
       await _startRecording(route.routeName);
-    } else if (!route.hasActiveEarphoneMic && state.isRecording) {
+    } else if (state.isRecording && _shouldStopForRoute(route)) {
       await stopRecording(reason: 'Earphone mic unavailable');
     }
   }
@@ -319,6 +321,7 @@ class RecordingController extends Notifier<RecordingStatus> {
         earphonesConnected: route.earphonesConnected,
         earphoneMicActive: route.earphoneMicActive,
         earphoneMicAvailable: route.earphoneMicAvailable,
+        phoneMicActive: route.phoneMicActive,
         inputName: route.inputName,
         statusMessage: _routeStatusMessage(route),
       );
@@ -341,18 +344,17 @@ class RecordingController extends Notifier<RecordingStatus> {
       }
       await ref.read(foregroundRecordingServiceProvider).start();
       final recording = await ref.read(recordingServiceProvider).start();
+      await ref.read(audioRouteServiceProvider).prepareEarphoneMic();
       final activeRoute = await ref
           .read(audioRouteServiceProvider)
           .initialState();
-      if (!activeRoute.earphoneMicActive) {
+      if (!activeRoute.earphoneMicAvailable) {
         await ref.read(recordingServiceProvider).stop().catchError((_) => null);
         await ref
             .read(foregroundRecordingServiceProvider)
             .stop()
             .catchError((_) {});
-        throw StateError(
-          'Recording blocked: active input is ${activeRoute.inputName}, not an earphone mic.',
-        );
+        throw StateError('Recording blocked: no earphone mic is available.');
       }
       session = await ref
           .read(databaseProvider)
@@ -397,9 +399,16 @@ class RecordingController extends Notifier<RecordingStatus> {
             (error) => state = state.copyWith(statusMessage: 'STT: $error'),
           );
 
-      await ref.read(transcriptionServiceProvider).start();
+      var transcriptionReady = true;
+      try {
+        await ref.read(transcriptionServiceProvider).start();
+      } on Exception catch (e) {
+        transcriptionReady = false;
+        state = state.copyWith(statusMessage: 'Recording. STT unavailable: $e');
+      }
 
       _activeSource = source;
+      _recordingStartedAt = DateTime.now();
       state = state.copyWith(
         isRecording: true,
         session: session,
@@ -408,13 +417,16 @@ class RecordingController extends Notifier<RecordingStatus> {
         earphonesConnected: activeRoute.earphonesConnected,
         earphoneMicActive: activeRoute.earphoneMicActive,
         earphoneMicAvailable: activeRoute.earphoneMicAvailable,
+        phoneMicActive: activeRoute.phoneMicActive,
         inputName: activeRoute.inputName,
         catchphraseDetectionActive: true,
         catchphraseReportCount: 0,
         clearLastCatchphraseLabel: true,
-        statusMessage: manual
-            ? 'Recording manual session'
-            : 'Recording earphone session',
+        statusMessage: transcriptionReady
+            ? manual
+                  ? 'Recording manual session'
+                  : 'Recording earphone session'
+            : 'Recording audio; live transcription will retry',
       );
       _startLevelDecay();
       _startPipelineHealthMonitor();
@@ -428,11 +440,13 @@ class RecordingController extends Notifier<RecordingStatus> {
       await ref.read(foregroundRecordingServiceProvider).stop();
       _pipelineHealthTimer?.cancel();
       _pipelineHealthTimer = null;
+      _recordingStartedAt = null;
       state = state.copyWith(
         isRecording: false,
         isPaused: false,
         isManualSession: false,
         earphoneMicActive: false,
+        phoneMicActive: false,
         catchphraseDetectionActive: false,
         statusMessage: error.toString(),
       );
@@ -484,6 +498,7 @@ class RecordingController extends Notifier<RecordingStatus> {
     _levelDecayTimer = null;
     _pipelineHealthTimer?.cancel();
     _pipelineHealthTimer = null;
+    _recordingStartedAt = null;
     _insightDebounceTimer?.cancel();
     _insightDebounceTimer = null;
 
@@ -656,10 +671,11 @@ class RecordingController extends Notifier<RecordingStatus> {
       earphonesConnected: route.earphonesConnected,
       earphoneMicActive: route.earphoneMicActive,
       earphoneMicAvailable: route.earphoneMicAvailable,
+      phoneMicActive: route.phoneMicActive,
       inputName: route.inputName,
     );
 
-    if (!route.hasActiveEarphoneMic) {
+    if (_shouldStopForRoute(route)) {
       await stopRecording(reason: 'Earphone mic unavailable');
       return;
     }
@@ -734,5 +750,20 @@ class RecordingController extends Notifier<RecordingStatus> {
       return 'Earphone mic route is not active';
     }
     return 'Earphone mic: ${route.inputName}';
+  }
+
+  bool _shouldStopForRoute(AudioRouteState route) {
+    if (!route.earphonesConnected || !route.earphoneMicAvailable) {
+      return true;
+    }
+    if (route.hasActiveEarphoneMic) {
+      return false;
+    }
+    final startedAt = _recordingStartedAt;
+    if (startedAt == null) {
+      return false;
+    }
+    return route.phoneMicActive &&
+        DateTime.now().difference(startedAt) > const Duration(seconds: 6);
   }
 }

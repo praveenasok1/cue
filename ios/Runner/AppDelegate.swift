@@ -77,6 +77,7 @@ import UIKit
           "earphonesConnected": false,
           "earphoneMicActive": false,
           "earphoneMicAvailable": false,
+          "phoneMicActive": false,
           "routeName": "Device speaker",
           "inputName": "Phone microphone",
         ])
@@ -173,6 +174,7 @@ import UIKit
       "earphonesConnected": output != nil || input != nil,
       "earphoneMicActive": activeInput != nil,
       "earphoneMicAvailable": input != nil,
+      "phoneMicActive": currentInput != nil && activeInput == nil,
       "routeName": name,
       "inputName": inputName,
     ]
@@ -183,6 +185,7 @@ import UIKit
       "earphonesConnected": false,
       "earphoneMicActive": false,
       "earphoneMicAvailable": false,
+      "phoneMicActive": false,
       "routeName": "Device speaker",
       "inputName": "Phone microphone",
     ]
