@@ -2,6 +2,8 @@
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
+.idea/
+*.iml
 build/
 coverage/
 pubspec.lock
@@ -15,6 +17,5 @@ android/local.properties
 ios/Flutter/ephemeral/
 ios/Pods/
 ios/.symlinks/
-ios/Runner.xcworkspace/
 ios/Flutter/Generated.xcconfig
 ios/Flutter/flutter_export_environment.sh

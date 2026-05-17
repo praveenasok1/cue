@@ -22,10 +22,12 @@ import UIKit
       UNUserNotificationCenter.current().delegate = self
     }
 
-    let controller = window?.rootViewController as! FlutterViewController
+    configureAudioSession()
+    let messenger = registrar(forPlugin: "CueAudioRoutePlugin").messenger()
+
     FlutterMethodChannel(
       name: routeChannelName,
-      binaryMessenger: controller.binaryMessenger
+      binaryMessenger: messenger
     ).setMethodCallHandler { [weak self] call, result in
       guard call.method == "currentRoute" else {
         result(FlutterMethodNotImplemented)
@@ -39,7 +41,7 @@ import UIKit
 
     FlutterEventChannel(
       name: routeEventsChannelName,
-      binaryMessenger: controller.binaryMessenger
+      binaryMessenger: messenger
     ).setStreamHandler(self)
 
     NotificationCenter.default.addObserver(
@@ -64,7 +66,23 @@ import UIKit
   }
 
   @objc private func audioRouteChanged() {
-    routeEventSink?(currentRouteState())
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.routeEventSink?(self.currentRouteState())
+    }
+  }
+
+  private func configureAudioSession() {
+    let session = AVAudioSession.sharedInstance()
+    do {
+      try session.setCategory(
+        .playAndRecord,
+        mode: .spokenAudio,
+        options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
+      )
+    } catch {
+      NSLog("CUE failed to configure AVAudioSession: \(error)")
+    }
   }
 
   private func currentRouteState() -> [String: Any] {
