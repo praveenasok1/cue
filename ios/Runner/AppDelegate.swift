@@ -54,6 +54,12 @@ import UIKit
       name: AVAudioSession.routeChangeNotification,
       object: nil
     )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(audioRouteChanged),
+      name: UIApplication.didBecomeActiveNotification,
+      object: nil
+    )
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -84,25 +90,30 @@ import UIKit
         mode: .spokenAudio,
         options: [.allowBluetooth, .allowBluetoothA2DP, .defaultToSpeaker]
       )
+      try session.setActive(true, options: [])
     } catch {
       NSLog("CUE failed to configure AVAudioSession: \(error)")
     }
   }
 
   private func currentRouteState() -> [String: Any] {
-    let route = AVAudioSession.sharedInstance().currentRoute
-    let output = route.outputs.first { output in
-      switch output.portType {
-      case .headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
-        return true
-      default:
-        return false
-      }
-    }
+    let session = AVAudioSession.sharedInstance()
+    let output = session.currentRoute.outputs.first(where: isEarphonePort)
+    let input = session.availableInputs?.first(where: isEarphonePort)
+    let routeName = output?.portName ?? input?.portName ?? "Device speaker"
 
     return [
-      "earphonesConnected": output != nil,
-      "routeName": output?.portName ?? "Device speaker",
+      "earphonesConnected": output != nil || input != nil,
+      "routeName": routeName,
     ]
+  }
+
+  private func isEarphonePort(_ description: AVAudioSessionPortDescription) -> Bool {
+    switch description.portType {
+    case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .headphones, .headsetMic, .usbAudio:
+      return true
+    default:
+      return false
+    }
   }
 }
