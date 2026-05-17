@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/models.dart';
@@ -332,20 +333,21 @@ class _LiveBubble extends StatelessWidget {
 
 // ═══════════════════════════════════════════════ Audio playback ═══════════════
 
-class _AudioPlayButton extends StatefulWidget {
+class _AudioPlayButton extends ConsumerStatefulWidget {
   const _AudioPlayButton({required this.path, this.label = 'Play'});
 
   final String? path;
   final String label;
 
   @override
-  State<_AudioPlayButton> createState() => _AudioPlayButtonState();
+  ConsumerState<_AudioPlayButton> createState() => _AudioPlayButtonState();
 }
 
-class _AudioPlayButtonState extends State<_AudioPlayButton> {
+class _AudioPlayButtonState extends ConsumerState<_AudioPlayButton> {
   late final AudioPlayer _player;
   bool _busy = false;
   bool _playing = false;
+  bool _pausedRecordingForPlayback = false;
   String? _loadedPath;
 
   @override
@@ -358,12 +360,14 @@ class _AudioPlayButtonState extends State<_AudioPlayButton> {
       if (state.processingState == ProcessingState.completed) {
         unawaited(_player.seek(Duration.zero));
         unawaited(_player.pause());
+        unawaited(_resumeRecordingIfNeeded());
       }
     });
   }
 
   @override
   void dispose() {
+    unawaited(_resumeRecordingIfNeeded());
     unawaited(_player.dispose());
     super.dispose();
   }
@@ -384,7 +388,10 @@ class _AudioPlayButtonState extends State<_AudioPlayButton> {
     try {
       if (_playing) {
         await _player.pause();
+        await _resumeRecordingIfNeeded();
       } else {
+        await _prepareSafePlaybackRoute();
+        await _pauseRecordingIfNeeded();
         if (_loadedPath != path) {
           await _player.setFilePath(path);
           _loadedPath = path;
@@ -398,6 +405,48 @@ class _AudioPlayButtonState extends State<_AudioPlayButton> {
       ).showSnackBar(SnackBar(content: Text('Playback failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _prepareSafePlaybackRoute() async {
+    final route = await ref
+        .read(audioRouteServiceProvider)
+        .prepareEarphoneMic();
+    if (!route.earphonesConnected) {
+      throw StateError('Connect earphones before playback.');
+    }
+
+    final session = await AudioSession.instance;
+    await session.configure(
+      const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+        avAudioSessionCategoryOptions:
+            AVAudioSessionCategoryOptions.allowBluetooth,
+        avAudioSessionMode: AVAudioSessionMode.voiceChat,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.speech,
+          usage: AndroidAudioUsage.voiceCommunication,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+      ),
+    );
+    await session.setActive(true);
+  }
+
+  Future<void> _pauseRecordingIfNeeded() async {
+    final status = ref.read(recordingControllerProvider);
+    if (status.isRecording && !status.isPaused) {
+      await ref.read(recordingControllerProvider.notifier).pauseRecording();
+      _pausedRecordingForPlayback = true;
+    }
+  }
+
+  Future<void> _resumeRecordingIfNeeded() async {
+    if (!_pausedRecordingForPlayback) return;
+    _pausedRecordingForPlayback = false;
+    final status = ref.read(recordingControllerProvider);
+    if (status.isRecording && status.isPaused) {
+      await ref.read(recordingControllerProvider.notifier).resumeRecording();
     }
   }
 }
