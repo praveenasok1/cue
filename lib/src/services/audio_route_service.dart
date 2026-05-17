@@ -35,19 +35,36 @@ class AudioRouteService {
   }
 
   Stream<AudioRouteState> routeChanges() async* {
-    yield await initialState();
-    try {
-      await for (final event in _eventChannel.receiveBroadcastStream()) {
-        if (event is Map) {
-          yield _stateFromMap(event.cast<String, Object?>());
-        } else {
-          yield const AudioRouteState(earphonesConnected: false);
+    var latest = await initialState();
+    yield latest;
+
+    while (true) {
+      try {
+        await for (final event in _eventChannel.receiveBroadcastStream()) {
+          if (event is! Map) continue;
+          final next = _stateFromMap(event.cast<String, Object?>());
+          if (!_sameState(next, latest)) {
+            latest = next;
+            yield latest;
+          }
         }
+      } on PlatformException {
+        // Channel can transiently fail after interruptions; re-subscribe.
+      } on MissingPluginException {
+        final fallback = await initialState();
+        if (!_sameState(fallback, latest)) {
+          latest = fallback;
+          yield latest;
+        }
+        return;
       }
-    } on PlatformException {
-      yield await initialState();
-    } on MissingPluginException {
-      yield const AudioRouteState(earphonesConnected: false);
+
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      final refreshed = await initialState();
+      if (!_sameState(refreshed, latest)) {
+        latest = refreshed;
+        yield latest;
+      }
     }
   }
 
@@ -56,5 +73,10 @@ class AudioRouteService {
       earphonesConnected: map?['earphonesConnected'] == true,
       routeName: (map?['routeName'] as String?) ?? 'Unknown',
     );
+  }
+
+  bool _sameState(AudioRouteState a, AudioRouteState b) {
+    return a.earphonesConnected == b.earphonesConnected &&
+        a.routeName == b.routeName;
   }
 }

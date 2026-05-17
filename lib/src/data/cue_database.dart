@@ -34,8 +34,10 @@ class CueDatabase extends GeneratedDatabase {
     },
     onUpgrade: (m, from, to) async {
       if (from < 2) {
-        await customStatement(
-          'ALTER TABLE catchphrases ADD COLUMN audio_path TEXT;',
+        await _addColumnIfMissing(
+          table: 'catchphrases',
+          column: 'audio_path',
+          sql: 'ALTER TABLE catchphrases ADD COLUMN audio_path TEXT;',
         );
       }
       if (from < 3) {
@@ -44,16 +46,24 @@ class CueDatabase extends GeneratedDatabase {
       }
       if (from < 4) {
         // Add tag column to catchphrases.
-        await customStatement(
-          "ALTER TABLE catchphrases ADD COLUMN tag TEXT NOT NULL DEFAULT 'countOnly';",
+        await _addColumnIfMissing(
+          table: 'catchphrases',
+          column: 'tag',
+          sql:
+              "ALTER TABLE catchphrases ADD COLUMN tag TEXT NOT NULL DEFAULT 'countOnly';",
         );
         // Add session_id to catchphrase_hits (nullable for old rows).
-        await customStatement(
-          'ALTER TABLE catchphrase_hits ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0;',
+        await _addColumnIfMissing(
+          table: 'catchphrase_hits',
+          column: 'session_id',
+          sql:
+              'ALTER TABLE catchphrase_hits ADD COLUMN session_id INTEGER NOT NULL DEFAULT 0;',
         );
         // Add microsoft_todo_id to reminders.
-        await customStatement(
-          'ALTER TABLE reminders ADD COLUMN microsoft_todo_id TEXT;',
+        await _addColumnIfMissing(
+          table: 'reminders',
+          column: 'microsoft_todo_id',
+          sql: 'ALTER TABLE reminders ADD COLUMN microsoft_todo_id TEXT;',
         );
         // Drop mood / acknowledged from hits – SQLite can't DROP COLUMN until
         // 3.35 which is not guaranteed on older iOS, so we just leave columns
@@ -497,6 +507,25 @@ ORDER BY due_at IS NULL, due_at ASC, created_at DESC;
       'SELECT last_insert_rowid() AS id;',
     ).getSingle();
     return row.read<int>('id');
+  }
+
+  Future<void> _addColumnIfMissing({
+    required String table,
+    required String column,
+    required String sql,
+  }) async {
+    if (await _hasColumn(table, column)) return;
+    await customStatement(sql);
+  }
+
+  Future<bool> _hasColumn(String table, String column) async {
+    final rows = await customSelect('PRAGMA table_info($table);').get();
+    for (final row in rows) {
+      if (row.read<String>('name') == column) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Stream<T> _watch<T>(Stream<void> changed, Future<T> Function() load) async* {

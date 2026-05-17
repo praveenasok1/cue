@@ -65,13 +65,21 @@ class RecordingService {
   Future<String?> stop() async {
     final path = await _recorder.stop();
     final session = await AudioSession.instance;
-    await session.setActive(false);
+    try {
+      await session.setActive(false);
+    } on Exception {
+      // Session deactivation is best-effort.
+    }
     return path;
   }
 
   Future<void> pause() => _recorder.pause();
 
   Future<void> resume() => _recorder.resume();
+
+  Future<bool> isRecording() => _recorder.isRecording();
+
+  Future<bool> isPaused() => _recorder.isPaused();
 
   Future<void> dispose() => _recorder.dispose();
 }

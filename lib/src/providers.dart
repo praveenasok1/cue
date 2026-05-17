@@ -266,8 +266,12 @@ class RecordingController extends Notifier<RecordingStatus> {
   StreamSubscription<TranscriptionChunk>? _transcriptionSubscription;
   StreamSubscription<String>? _transcriptionErrorSubscription;
   Timer? _levelDecayTimer;
+  Timer? _pipelineHealthTimer;
+  Timer? _insightDebounceTimer;
   DateTime _lastAmplitudeUpdate = DateTime.fromMillisecondsSinceEpoch(0);
   bool _isStarting = false;
+  bool _isRecovering = false;
+  String _activeSource = 'Unknown';
 
   @override
   RecordingStatus build() {
@@ -281,6 +285,8 @@ class RecordingController extends Notifier<RecordingStatus> {
       _transcriptionSubscription?.cancel();
       _transcriptionErrorSubscription?.cancel();
       _levelDecayTimer?.cancel();
+      _pipelineHealthTimer?.cancel();
+      _insightDebounceTimer?.cancel();
     });
 
     return const RecordingStatus(isRecording: false, earphonesConnected: false);
@@ -344,13 +350,6 @@ class RecordingController extends Notifier<RecordingStatus> {
               );
             } else {
               state = state.copyWith(liveTranscript: chunk.text);
-              // Scan partial results for catchphrases without waiting.
-              unawaited(
-                _detectCatchphrases(
-                  chunk.text,
-                  session?.id ?? 0,
-                ).catchError((_) {}),
-              );
             }
           });
 
@@ -364,6 +363,7 @@ class RecordingController extends Notifier<RecordingStatus> {
 
       await ref.read(transcriptionServiceProvider).start();
 
+      _activeSource = source;
       state = state.copyWith(
         isRecording: true,
         session: session,
@@ -377,6 +377,7 @@ class RecordingController extends Notifier<RecordingStatus> {
             : 'Recording earphone session',
       );
       _startLevelDecay();
+      _startPipelineHealthMonitor();
     } catch (error) {
       await _cancelSubscriptions();
       await ref.read(transcriptionServiceProvider).stop().catchError((_) {});
@@ -385,6 +386,8 @@ class RecordingController extends Notifier<RecordingStatus> {
         await ref.read(databaseProvider).endSession(session.id);
       }
       await ref.read(foregroundRecordingServiceProvider).stop();
+      _pipelineHealthTimer?.cancel();
+      _pipelineHealthTimer = null;
       state = state.copyWith(
         isRecording: false,
         isPaused: false,
@@ -399,8 +402,13 @@ class RecordingController extends Notifier<RecordingStatus> {
 
   Future<void> pauseRecording() async {
     if (!state.isRecording || state.isPaused) return;
-    await ref.read(recordingServiceProvider).pause();
-    await ref.read(transcriptionServiceProvider).pause();
+    try {
+      await ref.read(recordingServiceProvider).pause();
+      await ref.read(transcriptionServiceProvider).pause();
+    } on Exception catch (e) {
+      state = state.copyWith(statusMessage: 'Pause failed: $e');
+      return;
+    }
     state = state.copyWith(
       isPaused: true,
       amplitude: 0,
@@ -412,8 +420,13 @@ class RecordingController extends Notifier<RecordingStatus> {
 
   Future<void> resumeRecording() async {
     if (!state.isRecording || !state.isPaused) return;
-    await ref.read(recordingServiceProvider).resume();
-    await ref.read(transcriptionServiceProvider).resume();
+    try {
+      await ref.read(recordingServiceProvider).resume();
+      await ref.read(transcriptionServiceProvider).resume();
+    } on Exception catch (e) {
+      state = state.copyWith(statusMessage: 'Resume failed: $e');
+      return;
+    }
     state = state.copyWith(
       isPaused: false,
       catchphraseDetectionActive: true,
@@ -428,12 +441,20 @@ class RecordingController extends Notifier<RecordingStatus> {
     await _cancelSubscriptions();
     _levelDecayTimer?.cancel();
     _levelDecayTimer = null;
+    _pipelineHealthTimer?.cancel();
+    _pipelineHealthTimer = null;
+    _insightDebounceTimer?.cancel();
+    _insightDebounceTimer = null;
 
-    await ref.read(transcriptionServiceProvider).stop();
-    await ref.read(recordingServiceProvider).stop();
-    await ref.read(foregroundRecordingServiceProvider).stop();
+    await ref.read(transcriptionServiceProvider).stop().catchError((_) {});
+    await ref.read(recordingServiceProvider).stop().catchError((_) => null);
+    await ref.read(foregroundRecordingServiceProvider).stop().catchError((_) {});
     if (activeSession != null) {
-      await ref.read(databaseProvider).endSession(activeSession.id);
+      await ref.read(databaseProvider).endSession(activeSession.id).catchError((
+        _,
+      ) {
+        // Ignore close failures to keep state machine healthy.
+      });
     }
 
     state = state.copyWith(
@@ -493,13 +514,7 @@ class RecordingController extends Notifier<RecordingStatus> {
     final db = ref.read(databaseProvider);
     await db.appendTranscript(DateTime.now(), text);
     await _detectCatchphrases(text, sessionId);
-    try {
-      await ref
-          .read(insightControllerProvider.notifier)
-          .refreshFromTranscript(text);
-    } on Exception {
-      /* best-effort */
-    }
+    _scheduleInsightRefresh();
   }
 
   // ── Catchphrase detection – no cooldown, every occurrence logged ───────────
@@ -575,5 +590,73 @@ class RecordingController extends Notifier<RecordingStatus> {
     _speechLevelSubscription = null;
     _transcriptionSubscription = null;
     _transcriptionErrorSubscription = null;
+  }
+
+  void _startPipelineHealthMonitor() {
+    _pipelineHealthTimer?.cancel();
+    _pipelineHealthTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      unawaited(_healPipeline().catchError((_) {}));
+    });
+  }
+
+  Future<void> _healPipeline() async {
+    if (!state.isRecording || state.isPaused || _isStarting || _isRecovering) {
+      return;
+    }
+
+    final recordingService = ref.read(recordingServiceProvider);
+    final transcriptionService = ref.read(transcriptionServiceProvider);
+    final recorderActive = await recordingService.isRecording().catchError((_) {
+      return false;
+    });
+
+    if (!recorderActive) {
+      final wasPaused = await recordingService.isPaused().catchError((_) {
+        return false;
+      });
+      if (wasPaused) {
+        await recordingService.resume().catchError((_) {});
+      } else {
+        await _recoverRecordingPipeline('Microphone interrupted. Recovering...');
+        return;
+      }
+    }
+
+    if (!transcriptionService.isListening) {
+      await transcriptionService.ensureListening().catchError((_) {});
+    }
+  }
+
+  Future<void> _recoverRecordingPipeline(String message) async {
+    if (_isRecovering || !state.isRecording) return;
+    _isRecovering = true;
+    final wasManual = state.isManualSession;
+    final resumeSource = wasManual ? 'Manual session' : _activeSource;
+
+    try {
+      await stopRecording(reason: message);
+      if (wasManual) {
+        await _startRecording(resumeSource, manual: true);
+      } else {
+        final route = await ref.read(audioRouteServiceProvider).initialState();
+        if (route.earphonesConnected) {
+          await _startRecording(route.routeName);
+        }
+      }
+    } finally {
+      _isRecovering = false;
+    }
+  }
+
+  void _scheduleInsightRefresh() {
+    _insightDebounceTimer?.cancel();
+    _insightDebounceTimer = Timer(const Duration(seconds: 4), () {
+      unawaited(
+        ref
+            .read(insightControllerProvider.notifier)
+            .refreshToday()
+            .catchError((_) {}),
+      );
+    });
   }
 }

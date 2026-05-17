@@ -20,6 +20,7 @@ class TranscriptionService {
   final _soundLevels = StreamController<double>.broadcast();
   bool _shouldListen = false;
   bool _initialized = false;
+  Timer? _watchdog;
 
   Stream<TranscriptionChunk> get chunks => _chunks.stream;
   Stream<String> get errors => _errors.stream;
@@ -41,6 +42,7 @@ class TranscriptionService {
     }
 
     await _startListening();
+    _startWatchdog();
   }
 
   Future<void> _startListening() async {
@@ -59,6 +61,8 @@ class TranscriptionService {
 
   Future<void> stop() async {
     _shouldListen = false;
+    _watchdog?.cancel();
+    _watchdog = null;
     await _speechToText.stop();
   }
 
@@ -68,6 +72,8 @@ class TranscriptionService {
 
   Future<void> dispose() async {
     _shouldListen = false;
+    _watchdog?.cancel();
+    _watchdog = null;
     await _speechToText.cancel();
     await _errors.close();
     await _soundLevels.close();
@@ -101,5 +107,25 @@ class TranscriptionService {
       _ => level / 20,
     };
     _soundLevels.add(normalized.clamp(0, 1).toDouble());
+  }
+
+  bool get isListening => _speechToText.isListening;
+
+  Future<void> ensureListening() async {
+    if (_shouldListen && !_speechToText.isListening) {
+      await _startListening();
+    }
+  }
+
+  void _startWatchdog() {
+    _watchdog?.cancel();
+    _watchdog = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!_shouldListen || _speechToText.isListening) return;
+      unawaited(
+        _startListening().catchError((Object error) {
+          _errors.add(error.toString());
+        }),
+      );
+    });
   }
 }
