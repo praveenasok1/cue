@@ -831,103 +831,127 @@ class _StatRow extends StatelessWidget {
   }
 }
 
-class _CatchphraseDetailSheet extends StatelessWidget {
+class _CatchphraseDetailSheet extends ConsumerWidget {
   const _CatchphraseDetailSheet({required this.stat});
   final CatchphraseStat stat;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final allHitsFuture = ref
+        .read(databaseProvider)
+        .getHitsForCatchphrase(stat.catchphrase.id);
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.65,
       maxChildSize: 0.92,
-      builder: (_, sc) => ListView(
-        controller: sc,
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-        children: [
-          _SectionHeader(
-            icon: Icons.bar_chart_rounded,
-            title: '"${stat.catchphrase.phrase}"',
-            subtitle:
-                '${stat.count} occurrence${stat.count == 1 ? '' : 's'} today',
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _AudioPlayButton(
-              path: stat.catchphrase.audioPath,
-              label: 'Play catchphrase recording',
-            ),
-          ),
-          const SizedBox(height: 16),
-          if (stat.hits.isEmpty)
-            const Text('No occurrences logged today.')
-          else
-            for (final hit in stat.hits)
-              Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 4,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: stat.catchphrase.color,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              DateFormat.jms().format(hit.spokenAt),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            if (hit.latitude != null && hit.longitude != null)
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.location_on_rounded,
-                                    size: 13,
-                                    color: CueColors.primary,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${hit.latitude!.toStringAsFixed(5)}, ${hit.longitude!.toStringAsFixed(5)}',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ],
-                              )
-                            else
-                              const Text(
-                                'No GPS data',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            const SizedBox(height: 4),
-                            Text(
-                              hit.context.length > 80
-                                  ? '${hit.context.substring(0, 80)}…'
-                                  : hit.context,
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+      builder: (_, sc) => FutureBuilder<List<CatchphraseHit>>(
+        future: allHitsFuture,
+        builder: (context, snapshot) {
+          final allHits = snapshot.data ?? stat.hits;
+          return ListView(
+            controller: sc,
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+            children: [
+              _SectionHeader(
+                icon: Icons.bar_chart_rounded,
+                title: '"${stat.catchphrase.phrase}"',
+                subtitle: '${stat.count} today · ${allHits.length} all time',
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: _AudioPlayButton(
+                  path: stat.catchphrase.audioPath,
+                  label: 'Play catchphrase recording',
                 ),
               ),
-        ],
+              const SizedBox(height: 16),
+              Text(
+                'Occurrence report',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const LinearProgressIndicator()
+              else if (allHits.isEmpty)
+                const Text('No occurrences logged yet.')
+              else
+                for (final hit in allHits)
+                  _CatchphraseHitCard(hit: hit, color: stat.catchphrase.color),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CatchphraseHitCard extends StatelessWidget {
+  const _CatchphraseHitCard({required this.hit, required this.color});
+
+  final CatchphraseHit hit;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 4,
+              height: 56,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    DateFormat.yMMMd().add_jms().format(hit.spokenAt),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  if (hit.latitude != null && hit.longitude != null)
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on_rounded,
+                          size: 13,
+                          color: CueColors.primary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${hit.latitude!.toStringAsFixed(5)}, ${hit.longitude!.toStringAsFixed(5)}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    )
+                  else
+                    const Text(
+                      'No GPS data',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    hit.context.length > 120
+                        ? '${hit.context.substring(0, 120)}...'
+                        : hit.context,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

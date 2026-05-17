@@ -269,8 +269,15 @@ ON CONFLICT(day) DO UPDATE SET
   // ──────────────────────────────────────────────── catchphrase hits ─────────
 
   /// Returns all hits grouped by catchphrase for today.
-  Stream<List<CatchphraseStat>> watchTodayCatchphraseStats() {
-    return _watch(_hitsChanged.stream, getTodayCatchphraseStats);
+  Stream<List<CatchphraseStat>> watchTodayCatchphraseStats() async* {
+    yield await getTodayCatchphraseStats();
+    while (true) {
+      await Future.any([
+        _hitsChanged.stream.first,
+        Future<void>.delayed(_durationUntilNextDay()),
+      ]);
+      yield await getTodayCatchphraseStats();
+    }
   }
 
   Future<List<CatchphraseStat>> getTodayCatchphraseStats() async {
@@ -667,6 +674,12 @@ String _dateTimeLabel(DateTime value) {
   final minute = value.minute.toString().padLeft(2, '0');
   final period = value.hour >= 12 ? 'PM' : 'AM';
   return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')} $hour12:$minute $period';
+}
+
+Duration _durationUntilNextDay() {
+  final now = DateTime.now();
+  final tomorrow = DateTime(now.year, now.month, now.day + 1);
+  return tomorrow.difference(now) + const Duration(milliseconds: 250);
 }
 
 DateTime _dateOnly(DateTime day) => DateTime(day.year, day.month, day.day);
