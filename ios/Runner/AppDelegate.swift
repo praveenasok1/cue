@@ -113,7 +113,7 @@ import UIKit
       self.pendingDisconnectCheck = nil
     }
     pendingDisconnectCheck = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2), execute: work)
+    DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(5), execute: work)
   }
 
   // MARK: - Flutter channels

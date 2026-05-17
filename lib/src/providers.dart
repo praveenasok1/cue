@@ -304,6 +304,18 @@ class RecordingController extends Notifier<RecordingStatus> {
   }
 
   Future<void> _handleEarphoneState(AudioRouteState route) async {
+    if (state.isRecording && !route.definitiveDisconnect) {
+      state = state.copyWith(
+        earphonesConnected: true,
+        earphoneMicActive: state.earphoneMicActive || route.earphoneMicActive,
+        earphoneMicAvailable: true,
+        phoneMicActive: false,
+        inputName: state.inputName,
+        statusMessage: 'Recording through selected earphone mic',
+      );
+      return;
+    }
+
     state = state.copyWith(
       earphonesConnected: route.earphonesConnected,
       earphoneMicActive: route.earphoneMicActive,
@@ -674,11 +686,18 @@ class RecordingController extends Notifier<RecordingStatus> {
     final route = await ref.read(audioRouteServiceProvider).initialState();
 
     state = state.copyWith(
-      earphonesConnected: route.earphonesConnected,
-      earphoneMicActive: route.earphoneMicActive,
-      earphoneMicAvailable: route.earphoneMicAvailable,
-      phoneMicActive: route.phoneMicActive,
-      inputName: route.inputName,
+      earphonesConnected: route.definitiveDisconnect
+          ? route.earphonesConnected
+          : true,
+      earphoneMicActive: state.earphoneMicActive || route.earphoneMicActive,
+      earphoneMicAvailable: route.definitiveDisconnect
+          ? route.earphoneMicAvailable
+          : true,
+      phoneMicActive: route.definitiveDisconnect ? route.phoneMicActive : false,
+      inputName: route.definitiveDisconnect ? route.inputName : state.inputName,
+      statusMessage: route.definitiveDisconnect
+          ? _routeStatusMessage(route)
+          : 'Recording through selected earphone mic',
     );
 
     if (_shouldStopForRoute(route)) {
@@ -759,25 +778,6 @@ class RecordingController extends Notifier<RecordingStatus> {
   }
 
   bool _shouldStopForRoute(AudioRouteState route) {
-    if (route.definitiveDisconnect) {
-      return true;
-    }
-    if (route.phoneMicActive) {
-      return true;
-    }
-    if (!route.earphonesConnected || !route.earphoneMicAvailable) {
-      // Status polling can briefly lose Bluetooth input visibility while iOS
-      // keeps the recorder alive. Do not stop unless native route-change
-      // reported a physical disconnect.
-      return false;
-    }
-    if (route.hasActiveEarphoneMic) {
-      return false;
-    }
-    // Some iOS Bluetooth routes keep reporting the selected headset mic as
-    // available rather than active while the recorder is successfully capturing.
-    // Do not stop a healthy session on that ambiguous state; only stop on a
-    // clear disconnect/no-earphone-mic state above.
-    return false;
+    return route.definitiveDisconnect;
   }
 }
