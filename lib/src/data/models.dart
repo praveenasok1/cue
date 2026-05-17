@@ -117,6 +117,7 @@ class RecordingStatus {
     required this.earphonesConnected,
     this.session,
     this.amplitude = 0,
+    this.liveTranscript = '',
     this.statusMessage = 'Waiting for earphones',
   });
 
@@ -124,6 +125,7 @@ class RecordingStatus {
   final bool earphonesConnected;
   final RecordingSession? session;
   final double amplitude;
+  final String liveTranscript;
   final String statusMessage;
 
   RecordingStatus copyWith({
@@ -132,6 +134,7 @@ class RecordingStatus {
     RecordingSession? session,
     bool clearSession = false,
     double? amplitude,
+    String? liveTranscript,
     String? statusMessage,
   }) {
     return RecordingStatus(
@@ -139,6 +142,7 @@ class RecordingStatus {
       earphonesConnected: earphonesConnected ?? this.earphonesConnected,
       session: clearSession ? null : session ?? this.session,
       amplitude: amplitude ?? this.amplitude,
+      liveTranscript: liveTranscript ?? this.liveTranscript,
       statusMessage: statusMessage ?? this.statusMessage,
     );
   }

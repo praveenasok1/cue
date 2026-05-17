@@ -16,23 +16,38 @@ class TranscriptionService {
 
   final SpeechToText _speechToText;
   final _chunks = StreamController<TranscriptionChunk>.broadcast();
+  final _soundLevels = StreamController<double>.broadcast();
+  bool _shouldListen = false;
+  bool _initialized = false;
 
   Stream<TranscriptionChunk> get chunks => _chunks.stream;
+  Stream<double> get soundLevels => _soundLevels.stream;
 
   Future<void> start() async {
-    final available = await _speechToText.initialize(
-      onError: (error) {
-        _chunks.add(
-          TranscriptionChunk(
-            text: 'Speech recognition error: ${error.errorMsg}',
-            isFinal: true,
-          ),
-        );
-      },
-    );
-    if (!available) {
-      throw StateError('Speech recognition is not available on this device.');
+    _shouldListen = true;
+    if (!_initialized) {
+      final available = await _speechToText.initialize(
+        onError: (error) {
+          _chunks.add(
+            TranscriptionChunk(
+              text: 'Speech recognition error: ${error.errorMsg}',
+              isFinal: true,
+            ),
+          );
+        },
+        onStatus: _handleStatus,
+      );
+      if (!available) {
+        throw StateError('Speech recognition is not available on this device.');
+      }
+      _initialized = true;
     }
+
+    await _startListening();
+  }
+
+  Future<void> _startListening() async {
+    if (!_shouldListen || _speechToText.isListening) return;
 
     await _speechToText.listen(
       listenOptions: SpeechListenOptions(
@@ -41,21 +56,42 @@ class TranscriptionService {
         cancelOnError: false,
       ),
       onResult: _handleResult,
+      onSoundLevelChange: _handleSoundLevel,
     );
   }
 
   Future<void> stop() async {
+    _shouldListen = false;
     await _speechToText.stop();
   }
 
   Future<void> dispose() async {
+    _shouldListen = false;
     await _speechToText.cancel();
+    await _soundLevels.close();
     await _chunks.close();
+  }
+
+  void _handleStatus(String status) {
+    if (!_shouldListen) return;
+    if (status == 'done' || status == 'notListening') {
+      Future<void>.delayed(const Duration(milliseconds: 350), _startListening);
+    }
   }
 
   void _handleResult(SpeechRecognitionResult result) {
     final text = result.recognizedWords.trim();
     if (text.isEmpty) return;
     _chunks.add(TranscriptionChunk(text: text, isFinal: result.finalResult));
+  }
+
+  void _handleSoundLevel(double level) {
+    if (!level.isFinite) return;
+    final normalized = switch (level) {
+      >= 0 && <= 1 => level,
+      < 0 => (level + 60) / 60,
+      _ => level / 20,
+    };
+    _soundLevels.add(normalized.clamp(0, 1).toDouble());
   }
 }

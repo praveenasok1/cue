@@ -159,6 +159,16 @@ class _RecordingHero extends ConsumerWidget {
               amplitude: status.amplitude,
               isRecording: status.isRecording,
             ),
+            if (status.isRecording) ...[
+              const SizedBox(height: 14),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: _LiveTranscriptPreview(
+                  key: ValueKey(status.liveTranscript),
+                  text: status.liveTranscript,
+                ),
+              ),
+            ],
             if (status.isRecording)
               Align(
                 alignment: Alignment.centerRight,
@@ -213,6 +223,7 @@ class _TranscriptPanelState extends ConsumerState<_TranscriptPanel> {
   @override
   Widget build(BuildContext context) {
     final transcript = ref.watch(todayTranscriptProvider);
+    final recordingStatus = ref.watch(recordingControllerProvider);
     final catchphrases = ref
         .watch(catchphrasesProvider)
         .maybeWhen(data: (items) => items, orElse: () => <Catchphrase>[]);
@@ -240,8 +251,12 @@ class _TranscriptPanelState extends ConsumerState<_TranscriptPanel> {
             const SizedBox(height: 16),
             transcript.when(
               data: (dailyTranscript) {
+                final displayText = _withLiveTranscript(
+                  dailyTranscript.text,
+                  recordingStatus.liveTranscript,
+                );
                 if (!_focusNode.hasFocus && !_dirty) {
-                  _transcriptController.text = dailyTranscript.text;
+                  _transcriptController.text = displayText;
                 }
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -269,9 +284,12 @@ class _TranscriptPanelState extends ConsumerState<_TranscriptPanel> {
                         ),
                         FilledButton.icon(
                           onPressed: () async {
+                            final textToSave = _focusNode.hasFocus || _dirty
+                                ? _transcriptController.text
+                                : dailyTranscript.text;
                             await ref
                                 .read(transcriptControllerProvider.notifier)
-                                .saveToday(_transcriptController.text);
+                                .saveToday(textToSave);
                             _dirty = false;
                             _focusNode.unfocus();
                           },
@@ -282,7 +300,9 @@ class _TranscriptPanelState extends ConsumerState<_TranscriptPanel> {
                     ),
                     const SizedBox(height: 18),
                     _HighlightedTranscript(
-                      text: _transcriptController.text,
+                      text: _focusNode.hasFocus || _dirty
+                          ? _transcriptController.text
+                          : displayText,
                       search: search,
                       catchphrases: catchphrases,
                     ),
@@ -294,6 +314,56 @@ class _TranscriptPanelState extends ConsumerState<_TranscriptPanel> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  String _withLiveTranscript(String savedText, String liveTranscript) {
+    final live = liveTranscript.trim();
+    if (live.isEmpty) return savedText;
+    if (savedText.trim().isEmpty) return live;
+    return '$savedText\n$live';
+  }
+}
+
+class _LiveTranscriptPreview extends StatelessWidget {
+  const _LiveTranscriptPreview({required this.text, super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final copy = text.trim().isEmpty ? 'Listening for speech...' : text.trim();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: CueColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: CueColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Live transcript',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: CueColors.primary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            copy,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: text.trim().isEmpty ? colors.onSurfaceVariant : null,
+              fontStyle: text.trim().isEmpty ? FontStyle.italic : null,
+              height: 1.35,
+            ),
+          ),
+        ],
       ),
     );
   }

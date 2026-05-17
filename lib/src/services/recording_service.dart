@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:audio_session/audio_session.dart';
 import 'package:path/path.dart' as p;
@@ -21,8 +22,9 @@ class RecordingService {
     return _recorder.onAmplitudeChanged(const Duration(milliseconds: 90)).map((
       amplitude,
     ) {
-      final normalized = ((amplitude.current + 60) / 60).clamp(0, 1);
-      return normalized.toDouble();
+      if (!amplitude.current.isFinite) return 0;
+      final linear = ((amplitude.current + 60) / 60).clamp(0, 1);
+      return math.pow(linear, 0.55).toDouble();
     });
   }
 

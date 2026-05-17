@@ -142,6 +142,7 @@ final recordingControllerProvider =
 
 class RecordingController extends Notifier<RecordingStatus> {
   StreamSubscription<double>? _amplitudeSubscription;
+  StreamSubscription<double>? _speechLevelSubscription;
   StreamSubscription<TranscriptionChunk>? _transcriptionSubscription;
 
   @override
@@ -154,6 +155,7 @@ class RecordingController extends Notifier<RecordingStatus> {
 
     ref.onDispose(() {
       _amplitudeSubscription?.cancel();
+      _speechLevelSubscription?.cancel();
       _transcriptionSubscription?.cancel();
     });
 
@@ -191,6 +193,18 @@ class RecordingController extends Notifier<RecordingStatus> {
             state = state.copyWith(amplitude: amplitude);
           });
 
+      _speechLevelSubscription?.cancel();
+      _speechLevelSubscription = ref
+          .read(transcriptionServiceProvider)
+          .soundLevels
+          .listen((amplitude) {
+            // Speech recognition sound levels are a reliable live fallback on
+            // iOS while the recorder is writing the session file.
+            if (amplitude > state.amplitude * 0.75) {
+              state = state.copyWith(amplitude: amplitude);
+            }
+          });
+
       _transcriptionSubscription?.cancel();
       _transcriptionSubscription = ref
           .read(transcriptionServiceProvider)
@@ -198,6 +212,9 @@ class RecordingController extends Notifier<RecordingStatus> {
           .listen((chunk) {
             if (chunk.isFinal) {
               unawaited(_persistTranscriptChunk(chunk.text));
+              state = state.copyWith(liveTranscript: '');
+            } else {
+              state = state.copyWith(liveTranscript: chunk.text);
             }
           });
       await ref.read(transcriptionServiceProvider).start();
@@ -219,8 +236,10 @@ class RecordingController extends Notifier<RecordingStatus> {
   Future<void> stopRecording({String reason = 'Stopped'}) async {
     final activeSession = state.session;
     await _amplitudeSubscription?.cancel();
+    await _speechLevelSubscription?.cancel();
     await _transcriptionSubscription?.cancel();
     _amplitudeSubscription = null;
+    _speechLevelSubscription = null;
     _transcriptionSubscription = null;
 
     await ref.read(transcriptionServiceProvider).stop();
@@ -234,6 +253,7 @@ class RecordingController extends Notifier<RecordingStatus> {
       isRecording: false,
       clearSession: true,
       amplitude: 0,
+      liveTranscript: '',
       statusMessage: reason,
     );
   }
